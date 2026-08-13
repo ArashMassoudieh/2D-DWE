@@ -68,7 +68,8 @@ ax.set_aspect("equal")
 
 ax2=fig.add_subplot(gs[1])
 sf=s*FT
-ax2.fill_between(sf,zc*FT,zc.min()*FT-8,color="#c8b89a",zorder=2,label="Barrier crest (%.0f m model grid, MEAN-aggregated)" % DXM)
+ax2.fill_between(sf,zc*FT,zc.min()*FT-8,color="#c8b89a",zorder=2,label=("Barrier crest (native 1 m terrain, no aggregation)" if DXM <= 1.001
+                          else "Barrier crest (%.0f m model grid, MEAN-aggregated)" % DXM))
 ax2.plot(sf,zc*FT,c="#6b5b3e",lw=1.6,zorder=3)
 ax2.plot(sf,wc*FT,c="#1a4f95",lw=2.0,zorder=4,label="Peak water surface")
 ax2.fill_between(sf,zc*FT,wc*FT,where=hc*FT>0.5,color="#e8112d",alpha=.45,zorder=3,
