@@ -429,9 +429,41 @@ flat plateau. That is visible only because the discarded volume is accounted for
 rather than dropped. At C6 depths it will be negligible, but on any thin-sheet
 problem `h_dry` is a real mass sink and the accumulator must be watched.
 
+**2026-08-12 (later) — GDAL reader and the C6 case.**
+
+`io_gdal.*` reads terrain and roughness and writes GeoTIFF results; `cases/c6`
+runs on the real 1 m LiDAR. Build with `qmake6 CONFIG+=with_gdal`.
+
+First run, 10 m cells, 116,375 cells, 9,000 s of the 6-hour storm window:
+
+| | |
+|---|---|
+| inflow | 923.9 m³/s (32,628 cfs) over the west edge, on the wash |
+| roughness | n = 0.035–0.050, mean 0.0498, from NLCD |
+| mass closure | **2.6e-15** |
+| runtime | 12,454 steps, ~2 min |
+
+**Two input defects found and fixed while wiring this up:**
+
+*The roughness raster covered almost none of the domain.* Phase 1 was using
+`outputs/clipped/landcover_aligned.tif`, which is clipped to the delineated
+**watershed** — and the community bench lies outside it, because **the divide is
+the watershed boundary**. 95 % of the 2-D domain had no land cover at all.
+`C6-2d-inputs.py` now warps the raw NLCD tile (which is in Albers, not UTM)
+straight to the domain. Coverage is now 100 %.
+
+*CSV fields must be split honouring quotes.* `manning_n_2d.csv` contains
+`"Developed, Open Space"` — a naive split on `,` shifts the *n* column into the
+name column and every roughness value comes back wrong, silently.
+
+**Result of the first run is indicative only** and is recorded as a baseline to
+beat, not a finding: 3 of 80 divide transects showed water above the crest and
+76 of 84 structures showed >2 cm. At 10 m the crest is under-represented by
+~1.3 ft median (§4.3), which biases *toward* spill, and 9,000 s covers only part
+of the storm. The comparison that means anything is at 1–3 m against RAS.
+
 ### Still to write
 
-`io_gdal.*` (terrain and roughness rasters, the C6 case), `viewer_vtk.*`
-(interactive rendering; results already write as `.vti` and open in ParaView),
-and the remaining rungs of the validation ladder — rainfall on a plane, the
-wetting front on an adverse slope, and the HEC-RAS comparison.
+`viewer_vtk.*` (interactive rendering; results already write as `.vti` and open
+in ParaView), the remaining rungs of the validation ladder — rainfall on a
+plane, the wetting front on an adverse slope — and the HEC-RAS comparison.

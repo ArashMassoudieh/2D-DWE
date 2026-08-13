@@ -13,7 +13,10 @@
 //              NO FURTHER. This is the one that exposes a leaky face rule
 //              immediately, and it is directly analogous to the C6 divide.
 //
-// Usage:  2D-DWE [plane|pond] [--out DIR]
+//   c6         the real thing: Figueredo Wash and the Coyote Canyon community,
+//              on 1 m LiDAR. Requires CONFIG+=with_gdal.
+//
+// Usage:  2D-DWE [plane|pond|c6] [--out DIR] [--tend S] [--dx M] [--agg mean|min|max]
 // =============================================================================
 #include <cstdio>
 #include <cstring>
@@ -30,6 +33,9 @@
 #include "massbalance.hpp"
 #include "scheme_inertial.hpp"
 #include "vti_writer.hpp"
+#ifdef DWE_WITH_GDAL
+#include "io_gdal.hpp"
+#endif
 
 using namespace dwe;
 
@@ -146,19 +152,121 @@ static Case make_pond()
     return c;
 }
 
+#ifdef DWE_WITH_GDAL
+// -----------------------------------------------------------------------------
+// The C6 case. Terrain, roughness and the domain all come from the Phase-1
+// products in WS3_GIS/NM15-097/outputs_2D/ (see cases/c6/inputs_manifest.txt).
+//
+// Boundaries, as established by the Phase-1 geometry work:
+//   inflow   the wash crosses the domain edge exactly ONCE, on the WEST side.
+//            The reach has one inflow and no laterals, so the discharge is the
+//            same wherever the face is placed: 32,628 cfs = 924 m3/s for the
+//            governing 6-hour storm.
+//   outflow  the FULL EAST edge. Sampled ground along it is 6,130-6,138 ft, the
+//            low side of the domain, and both the wash and any spill onto the
+//            community bench drain that way.
+// -----------------------------------------------------------------------------
+static const char* C6_DIR =
+    "/home/arash/Dropbox/Chloeta/NHA/WS3_GIS/NM15-097/outputs_2D";
+
+static Case make_c6(double dx_target, Agg agg)
+{
+    Case c;
+    c.name = "c6";
+
+    const std::string terr = std::string(C6_DIR) + "/terrain_2d.tif";
+    const std::string land = std::string(C6_DIR) + "/landcover_2d.tif";
+    const std::string csv  = std::string(C6_DIR) + "/manning_n_2d.csv";
+
+    std::vector<char> valid;
+    std::string err;
+    if (!load_terrain(terr, dx_target, agg, c.g, c.z, valid, &err)) {
+        std::printf("*** terrain: %s\n", err.c_str());
+        std::exit(2);
+    }
+    std::printf("terrain       %s\n", terr.c_str());
+    std::printf("              %d x %d @ %.2f m  (requested %.2f m)\n",
+                c.g.nx, c.g.ny, c.g.dx, dx_target);
+
+    c.p.n_default   = 0.050;
+    c.p.t_end       = 9.0 * 3600.0;    // the 6-hour storm's control window
+    c.p.t_out       = 600.0;
+    c.p.report_every = 500;
+    c.p.dt_max      = 5.0;
+
+    c.h0.assign(c.g.ncell(), 0.0);
+
+    // --- inflow: 32,628 cfs on the west edge, on the wash ----------------
+    //
+    // The wash crosses the west edge at y = 3,959,857 (Phase 1). Convert that to
+    // a row index on whatever grid the terrain gave us, and spread the discharge
+    // over a face centred on it.
+    const double y_wash   = 3959857.0;
+    const double half_m   = 150.0;
+    const int j_wash = int((c.g.y0 - y_wash) / c.g.dx);
+    const int jhalf  = std::max(1, int(half_m / c.g.dx));
+
+    Boundary in;
+    in.side  = Side::West;
+    in.type  = BcType::Inflow;
+    in.begin = std::max(0, j_wash - jhalf);
+    in.end   = std::min(c.g.ny, j_wash + jhalf);
+    in.Q     = Series::constant(32628.0 * 0.028316847);   // cfs -> m3/s
+    in.name  = "Figueredo Wash, 6-hr 100-yr";
+
+    Boundary out;
+    out.side  = Side::East;
+    out.type  = BcType::NormalDepth;
+    out.slope = 0.005;
+    out.name  = "east edge outfall";
+
+    c.bcs = {in, out};
+
+    std::printf("inflow        %.1f m3/s (32,628 cfs) over rows %d-%d on the west edge\n",
+                in.Q.at(0.0), in.begin, in.end);
+    std::printf("outflow       normal depth, full east edge, S = %.4f\n", out.slope);
+
+    // --- roughness -------------------------------------------------------
+    // load_manning fills a vector on this grid; stash it in h0's sibling by
+    // returning through the Case. Fields are built by the caller, so hand the
+    // roughness back via a static and let main() apply it.
+    return c;
+}
+#endif // DWE_WITH_GDAL
+
 // -----------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
     std::string which = "plane";
     std::string outdir;
     double tend = -1.0;
+    double dxt  = 3.0;                  // model cell size for the c6 case
+    std::string aggs = "mean";
     for (int a = 1; a < argc; ++a) {
         if (std::strcmp(argv[a], "--out") == 0 && a + 1 < argc) outdir = argv[++a];
         else if (std::strcmp(argv[a], "--tend") == 0 && a + 1 < argc) tend = std::atof(argv[++a]);
+        else if (std::strcmp(argv[a], "--dx")   == 0 && a + 1 < argc) dxt  = std::atof(argv[++a]);
+        else if (std::strcmp(argv[a], "--agg")  == 0 && a + 1 < argc) aggs = argv[++a];
         else which = argv[a];
     }
 
-    Case c = (which == "pond") ? make_pond() : make_plane();
+    Case c;
+    if (which == "pond")      c = make_pond();
+    else if (which == "c6") {
+#ifdef DWE_WITH_GDAL
+        const Agg agg = (aggs == "min") ? Agg::Min
+                      : (aggs == "max") ? Agg::Max : Agg::Mean;
+        if (agg == Agg::Mean && dxt > 1.5)
+            std::printf("NOTE: aggregating 1 m terrain by MEAN at %.1f m lowers ridge\n"
+                        "      crests and raises channel inverts -- a one-directional bias,\n"
+                        "      always toward more spill. See DESIGN 4.3.\n\n", dxt);
+        c = make_c6(dxt, agg);
+#else
+        std::printf("*** the c6 case needs GDAL: rebuild with  qmake6 CONFIG+=with_gdal\n");
+        return 2;
+#endif
+    }
+    else c = make_plane();
     if (tend > 0.0) c.p.t_end = tend;
     if (!outdir.empty()) c.p.out_dir = outdir;
     else                 c.p.out_dir = "out_" + c.name;
@@ -167,6 +275,23 @@ int main(int argc, char** argv)
     Fields F(c.g, c.p.n_default);
     F.z = c.z;
     F.h = c.h0;
+
+#ifdef DWE_WITH_GDAL
+    if (c.name == "c6") {
+        std::string err;
+        if (!load_manning(std::string(C6_DIR) + "/landcover_2d.tif",
+                          std::string(C6_DIR) + "/manning_n_2d.csv",
+                          c.g, F.n, c.p.n_default, &err)) {
+            std::printf("*** roughness: %s -- falling back to a uniform n = %.3f\n",
+                        err.c_str(), c.p.n_default);
+        } else {
+            double nmin = 1e9, nmax = -1e9, nsum = 0.0;
+            for (double v : F.n) { nmin = std::min(nmin, v); nmax = std::max(nmax, v); nsum += v; }
+            std::printf("roughness     n = %.3f - %.3f (mean %.4f) from NLCD\n",
+                        nmin, nmax, nsum / F.n.size());
+        }
+    }
+#endif
 
     SchemeInertial solver(F, c.p, c.bcs);
     MassBalance mb;
@@ -255,6 +380,16 @@ int main(int argc, char** argv)
                     h_on_rim < 0.01 ? "OK -- rim held" : "*** RIM LEAKED ***");
     }
 
+#ifdef DWE_WITH_GDAL
+    if (c.name == "c6") {
+        write_gtiff(c.p.out_dir + "/depth_max.tif", c.g, F.h);
+        std::vector<double> wse_f(c.g.ncell());
+        for (std::size_t k = 0; k < c.g.ncell(); ++k)
+            wse_f[k] = (F.h[k] > c.p.h_dry) ? F.H(k) : -9999.0;
+        write_gtiff(c.p.out_dir + "/wse_final.tif", c.g, wse_f);
+        std::printf("  wrote depth_max.tif and wse_final.tif to %s/\n", c.p.out_dir.c_str());
+    }
+#endif
     std::printf("  wrote %ld .vti frames to %s/\n", nout, c.p.out_dir.c_str());
     const bool ok = mb.closes(F.volume(), c.p.mass_tol);
     std::printf("=====================================================================\n");
