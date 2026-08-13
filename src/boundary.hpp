@@ -13,6 +13,9 @@
 #pragma once
 
 #include <vector>
+#include <fstream>
+#include <string>
+#include <algorithm>
 #include <string>
 #include <cmath>
 #include <algorithm>
@@ -33,6 +36,46 @@ struct Series
     std::vector<double> v;
 
     static Series constant(double value) { Series s; s.t = {0.0}; s.v = {value}; return s; }
+
+    // Read a two-column CSV "t_s,value"; '#' comments and a header line are
+    // skipped. Returns an empty Series if the file cannot be read, so a caller
+    // can fall back rather than silently run with no inflow at all.
+    static Series from_csv(const std::string& path)
+    {
+        Series s;
+        std::ifstream f(path);
+        if (!f) return s;
+        std::string line;
+        while (std::getline(f, line)) {
+            if (line.empty() || line[0] == '#') continue;
+            const std::size_t c = line.find(',');
+            if (c == std::string::npos) continue;
+            try {
+                const double a = std::stod(line.substr(0, c));
+                const double b = std::stod(line.substr(c + 1));
+                s.t.push_back(a); s.v.push_back(b);
+            } catch (...) { continue; }        // the header line lands here
+        }
+        return s;
+    }
+
+    double peak()  const { return v.empty() ? 0.0 : *std::max_element(v.begin(), v.end()); }
+    double span()  const { return t.empty() ? 0.0 : t.back(); }
+    double t_peak() const
+    {
+        if (v.empty()) return 0.0;
+        return t[std::size_t(std::max_element(v.begin(), v.end()) - v.begin())];
+    }
+
+    // Trapezoidal volume [m^3] -- lets the run report how much water the
+    // hydrograph should deliver, which the mass balance can then be checked against.
+    double volume() const
+    {
+        double s2 = 0.0;
+        for (std::size_t i = 1; i < t.size(); ++i)
+            s2 += 0.5 * (v[i] + v[i - 1]) * (t[i] - t[i - 1]);
+        return s2;
+    }
 
     double at(double tq) const
     {

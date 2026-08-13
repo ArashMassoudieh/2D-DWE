@@ -224,7 +224,22 @@ static Case make_c6(double dx_target, Agg agg)
     in.type  = BcType::Inflow;
     in.begin = jlo;
     in.end   = jhi + 1;
-    in.Q     = Series::constant(32628.0 * 0.028316847);   // cfs -> m3/s
+    // TRANSIENT INFLOW -- the routed HMS hydrograph, not a steady peak.
+    // Holding the peak steady forever is not conservative, it is simply wrong:
+    // it delivers unbounded volume, so inundation keeps growing with run length
+    // and no reported extent is a property of the storm. The hydrograph carries
+    // 4,720 ac-ft and is done in 9 hours.
+    //
+    // The element is Reach_58, NOT Junction_28. Junction_28 holds the 32,628 cfs
+    // headline peak but lies 1,190 m west of this domain; Reach_58 discharges
+    // 115 m from the inflow face, attenuated to 32,431 cfs. See tools/hms_hydrograph.py.
+    const std::string qcsv = std::string(C6_DIR) + "/inflow_6hr_100yr.csv";
+    in.Q = Series::from_csv(qcsv);
+    if (in.Q.t.size() < 2) {
+        std::printf("*** could not read %s -- falling back to a STEADY peak.\n"
+                    "*** Run tools/hms_hydrograph.py to regenerate it.\n", qcsv.c_str());
+        in.Q = Series::constant(32431.0 * 0.028316847);
+    }
     in.name  = "Figueredo Wash, 6-hr 100-yr";
 
     Boundary out;
@@ -235,8 +250,13 @@ static Case make_c6(double dx_target, Agg agg)
 
     c.bcs = {in, out};
 
-    std::printf("inflow        %.1f m3/s (32,628 cfs) over rows %d-%d on the west edge\n",
-                in.Q.at(0.0), in.begin, in.end);
+    std::printf("inflow        HMS Reach_58, 6-hr 100-yr TRANSIENT hydrograph\n"
+                "              peak %.1f m3/s (%.0f cfs) at %.2f h, volume %.0f ac-ft,"
+                " %.1f h long\n"
+                "              over rows %d-%d on the west edge\n",
+                in.Q.peak(), in.Q.peak() / 0.028316847, in.Q.t_peak() / 3600.0,
+                in.Q.volume() / 1233.4818, in.Q.span() / 3600.0,
+                in.begin, in.end);
     std::printf("              located from the terrain: west-edge low %.2f m at row %d,\n"
                 "              face width %.0f m (%.0f ft) within %.1f m of it\n",
                 zmin, jmin, (in.end - in.begin) * c.g.dx,
@@ -257,6 +277,7 @@ int main(int argc, char** argv)
     std::string which = "plane";
     std::string outdir;
     double tend = -1.0;
+    double tout = -1.0, cfl = -1.0;
     double dxt  = 3.0;                  // model cell size for the c6 case
     std::string aggs = "mean";
     for (int a = 1; a < argc; ++a) {
@@ -264,6 +285,10 @@ int main(int argc, char** argv)
         else if (std::strcmp(argv[a], "--tend") == 0 && a + 1 < argc) tend = std::atof(argv[++a]);
         else if (std::strcmp(argv[a], "--dx")   == 0 && a + 1 < argc) dxt  = std::atof(argv[++a]);
         else if (std::strcmp(argv[a], "--agg")  == 0 && a + 1 < argc) aggs = argv[++a];
+        // Output cadence matters more than it looks: .vti is ASCII, so at 3 m a
+        // frame is ~60 MB and the 60 s default would write 10 GB over a 3 h run.
+        else if (std::strcmp(argv[a], "--tout") == 0 && a + 1 < argc) tout = std::atof(argv[++a]);
+        else if (std::strcmp(argv[a], "--cfl")  == 0 && a + 1 < argc) cfl  = std::atof(argv[++a]);
         else which = argv[a];
     }
 
@@ -285,6 +310,8 @@ int main(int argc, char** argv)
     }
     else c = make_plane();
     if (tend > 0.0) c.p.t_end = tend;
+    if (tout > 0.0) c.p.t_out = tout;
+    if (cfl  > 0.0) c.p.cfl   = cfl;
     if (!outdir.empty()) c.p.out_dir = outdir;
     else                 c.p.out_dir = "out_" + c.name;
     std::filesystem::create_directories(c.p.out_dir);
