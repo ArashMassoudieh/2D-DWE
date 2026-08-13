@@ -201,8 +201,33 @@ Where these codes fail. Five rules, in order of importance.
 3. **Hysteresis.** Wet at 5 mm, dry at 2 mm. Equal thresholds make cells flicker wet/dry
    every step and the solution never settles.
 
-4. **Account for the discarded film.** When a cell drops below `H_DRY` its residual depth is
-   zeroed. That mass goes into a `discarded` accumulator, never into thin air.
+4. **Do NOT delete the sub-`H_DRY` film.** *(Revised — the original rule zeroed it into a
+   `discarded` accumulator. That was wrong, and measurably so.)*
+
+   Zeroing the residual depth is a real mass sink, and a **resolution-dependent** one. Each
+   drying event costs `H_DRY x cell_area`, but halving the cell size more than doubles the
+   number of wetting-front cells that wet and dry. Measured on C6 under the 6-hour
+   hydrograph:
+
+   | grid | inflow | deleted at `H_DRY` |
+   |------|--------|--------------------|
+   | 10 m | 5.82 M m3 | 0.80 M m3 (13.8 %) |
+   |  3 m | 5.82 M m3 | 1.93 M m3 (33.2 %) |
+
+   Refining the grid made the answer *worse* — the opposite of what refinement is for — and
+   at a third of the volume the 3 m depths were not quotable. Note that the balance still
+   closed to 1e-14 throughout: **the accounting was honest about a sink that should not have
+   existed.** A conserved error is still an error.
+
+   Deleting the film never bought stability. Two independent guards already cover the
+   near-dry case: `H_FACE_MIN` returns `q = 0` outright for a shallow face, and `H_FRIC_MIN`
+   bounds `h^(7/3)` in the friction denominator. The film is left where it is, which is what
+   a millimetre of water on desert ground actually does. `v_film` reports how much is held
+   below `H_DRY` at any instant, as a diagnostic, not a loss.
+
+   `discarded` survives for genuine round-off negatives only. The positivity limiter bounds
+   everything above that, so a non-trivial value there means the limiter has failed and the
+   mass balance must be free to say so.
 
 5. **Scheme B only — no active set needed.** Keeping the `A/Δt` diagonal means dry cells
    decouple and solve trivially as `h^{n+1} = h^n = 0`. Mask them from the Krylov solve as an

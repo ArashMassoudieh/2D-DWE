@@ -288,17 +288,42 @@ void SchemeInertial::update_depths(double dt, MassBalance& mb)
 void SchemeInertial::dry_cells(MassBalance& mb)
 {
     const double A = F.g.area();
-    double lost = 0.0;
+    double lost = 0.0, film = 0.0;
+    std::size_t nfilm = 0;
 
-#pragma omp parallel for schedule(static) reduction(+:lost)
+    // THE FILM IS LEFT IN PLACE. It used to be zeroed and booked as discarded,
+    // which is a real mass sink and a resolution-dependent one: the cost of a
+    // drying event is h_dry * cell_area, but halving the cell size more than
+    // doubles the number of wetting-front cells that dry. Measured on C6 with
+    // the 6-hour hydrograph, that sink took 13.8 % of the inflow at 10 m and
+    // 33.2 % at 3 m -- refining the grid made the answer worse, which is
+    // backwards and disqualified the finer run.
+    //
+    // Deleting it was never buying stability. Two guards already handle the
+    // near-dry case independently: h_face_min stops flux across a shallow face
+    // (update_faces returns q = 0 outright), and h_fric_min bounds the h^(7/3)
+    // in the friction denominator. The film simply sits there, which is what a
+    // millimetre of water on desert ground actually does.
+    //
+    // Only genuine round-off negatives are clamped, and those are still booked
+    // rather than silently absorbed -- the positivity limiter bounds everything
+    // above that, so a non-trivial negative here means the limiter has failed
+    // and the mass balance must be allowed to say so.
+#pragma omp parallel for schedule(static) reduction(+:lost,film,nfilm)
     for (std::size_t k = 0; k < F.g.ncell(); ++k) {
-        if (F.h[k] > 0.0 && F.h[k] < P.h_dry) {
+        if (F.h[k] < 0.0) {
             lost += F.h[k];
             F.h[k] = 0.0;
+        }
+        else if (F.h[k] < P.h_dry && F.h[k] > 0.0) {
+            film += F.h[k];
+            ++nfilm;
         }
         F.active[k] = (F.h[k] > P.h_wet) ? 1 : 0;
     }
     mb.v_discarded += lost * A;
+    mb.v_film       = film * A;      // a snapshot, not an accumulator
+    mb.n_film       = nfilm;
 }
 
 // -----------------------------------------------------------------------------
