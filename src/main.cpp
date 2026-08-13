@@ -174,7 +174,10 @@ static Case make_c6(double dx_target, Agg agg)
     Case c;
     c.name = "c6";
 
-    const std::string terr = std::string(C6_DIR) + "/terrain_2d.tif";
+    // The engineer-supplied clip: 4372 x 2106 @ 1 m, EPSG:26912, no nodata.
+    // The DEM defines the domain -- load_terrain derives the grid from it -- so
+    // there is no separate boundary polygon to keep in step.
+    const std::string terr = std::string(C6_DIR) + "/cliped_dem.tif";
     const std::string land = std::string(C6_DIR) + "/landcover_2d.tif";
     const std::string csv  = std::string(C6_DIR) + "/manning_n_2d.csv";
 
@@ -201,16 +204,26 @@ static Case make_c6(double dx_target, Agg agg)
     // The wash crosses the west edge at y = 3,959,857 (Phase 1). Convert that to
     // a row index on whatever grid the terrain gave us, and spread the discharge
     // over a face centred on it.
-    const double y_wash   = 3959857.0;
-    const double half_m   = 150.0;
-    const int j_wash = int((c.g.y0 - y_wash) / c.g.dx);
-    const int jhalf  = std::max(1, int(half_m / c.g.dx));
+    // Find the wash on the west edge FROM THE TERRAIN rather than trusting a
+    // hard-coded northing: the incised channel is the low ground, so take the
+    // west column's minimum and keep every row within BAND_M of it. This
+    // survives a change of DEM extent, which a fixed coordinate does not.
+    const double BAND_M = 3.0;
+    double zmin = 1e30;
+    int    jmin = 0;
+    for (int j = 0; j < c.g.ny; ++j) {
+        const double zz = c.z[c.g.k(0, j)];
+        if (zz < zmin) { zmin = zz; jmin = j; }
+    }
+    int jlo = jmin, jhi = jmin;
+    while (jlo > 0            && c.z[c.g.k(0, jlo - 1)] <= zmin + BAND_M) --jlo;
+    while (jhi < c.g.ny - 1   && c.z[c.g.k(0, jhi + 1)] <= zmin + BAND_M) ++jhi;
 
     Boundary in;
     in.side  = Side::West;
     in.type  = BcType::Inflow;
-    in.begin = std::max(0, j_wash - jhalf);
-    in.end   = std::min(c.g.ny, j_wash + jhalf);
+    in.begin = jlo;
+    in.end   = jhi + 1;
     in.Q     = Series::constant(32628.0 * 0.028316847);   // cfs -> m3/s
     in.name  = "Figueredo Wash, 6-hr 100-yr";
 
@@ -224,6 +237,10 @@ static Case make_c6(double dx_target, Agg agg)
 
     std::printf("inflow        %.1f m3/s (32,628 cfs) over rows %d-%d on the west edge\n",
                 in.Q.at(0.0), in.begin, in.end);
+    std::printf("              located from the terrain: west-edge low %.2f m at row %d,\n"
+                "              face width %.0f m (%.0f ft) within %.1f m of it\n",
+                zmin, jmin, (in.end - in.begin) * c.g.dx,
+                (in.end - in.begin) * c.g.dx * 3.280839895, BAND_M);
     std::printf("outflow       normal depth, full east edge, S = %.4f\n", out.slope);
 
     // --- roughness -------------------------------------------------------
@@ -312,15 +329,13 @@ int main(int argc, char** argv)
 
     double t = 0.0, t_next_out = 0.0;
     long   step = 0, nout = 0;
-    std::vector<double> wse(c.g.ncell());
 
     while (t < c.p.t_end && step < c.p.max_steps) {
         if (c.p.write_vti && t >= t_next_out) {
-            for (std::size_t k = 0; k < c.g.ncell(); ++k) wse[k] = F.H(k);
             char path[512];
             std::snprintf(path, sizeof(path), "%s/%s_%04ld.vti",
                           c.p.out_dir.c_str(), c.name.c_str(), nout);
-            write_vti(path, c.g, F.h, F.z, wse);
+            write_vti(path, F);
             ++nout;
             t_next_out += c.p.t_out;
         }

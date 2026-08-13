@@ -40,8 +40,18 @@ public:
     // Advance one step. Returns the dt actually taken.
     double step(double t, MassBalance& mb);
 
-    // Courant-limited timestep from the current depth field.
+    // Courant-limited timestep. Already adaptive -- recomputed every step -- but
+    // it uses the WAVE + FLOW speed, not the wave speed alone, and its growth is
+    // rate-limited. See the .cpp for why both matter.
     double stable_dt() const;
+
+    // Largest (|u| + sqrt(g h)) seen in the last flux update, cached so the
+    // timestep does not need its own full pass over the grid.
+    double last_max_speed = 0.0;
+
+private:
+    mutable double dt_prev = 0.0;
+public:
 
     // Optional uniform source (rainfall etc.), m/s. Zero by default.
     double source = 0.0;

@@ -12,11 +12,39 @@ SchemeInertial::SchemeInertial(Fields& f, const Params& p, std::vector<Boundary>
 }
 
 // -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// ADAPTIVE TIMESTEP
+//
+// Three things beyond the textbook dt = alpha*dx/sqrt(g*h):
+//
+//  1. THE SPEED IS |u| + sqrt(g*h), NOT sqrt(g*h) ALONE. The signal that limits
+//     an explicit scheme is the fastest characteristic, which is advection plus
+//     the gravity wave. On the C6 wash the flow reaches several m/s, so ignoring
+//     |u| overestimates the allowable step by tens of percent -- and the failure
+//     is not graceful, it is a blown-up run.
+//
+//  2. IT REUSES THE MAXIMUM FOUND DURING THE FLUX PASS. A separate scan for
+//     max depth is a full extra sweep of the grid every step; at 9.2 M cells
+//     that is real time spent computing something the flux loop already saw.
+//
+//  3. GROWTH IS RATE-LIMITED. After a quiet period dt can otherwise jump by a
+//     large factor in one step -- typically as a wetting front arrives -- and
+//     the lagged friction term does not tolerate it. Allowing at most +20 % per
+//     step costs nothing and removes a whole class of intermittent blow-ups.
+// -----------------------------------------------------------------------------
 double SchemeInertial::stable_dt() const
 {
-    const double hmax = F.max_depth();
-    if (hmax <= P.h_dry) return P.dt_max;
-    const double dt = P.cfl * F.g.dx / std::sqrt(G * hmax);
+    double speed = last_max_speed;
+    if (speed <= 0.0) {
+        // first step, or a completely dry grid: fall back to a depth-only scan
+        const double hmax = F.max_depth();
+        if (hmax <= P.h_dry) return P.dt_max;
+        speed = std::sqrt(G * hmax);
+    }
+    double dt = P.cfl * F.g.dx / speed;
+
+    if (dt_prev > 0.0) dt = std::min(dt, dt_prev * 1.2);   // growth limiter
+
     return std::min(P.dt_max, std::max(P.dt_min, dt));
 }
 
@@ -30,9 +58,10 @@ void SchemeInertial::update_faces(double dt)
     const Grid&  g   = F.g;
     const double dx  = g.dx;
     const double gdt = G * dt;
+    double smax = 0.0;
 
     // ---- west-east faces -------------------------------------------------
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) reduction(max:smax)
     for (int j = 0; j < g.ny; ++j) {
         for (int i = 1; i < g.nx; ++i) {
             const std::size_t L = g.k(i - 1, j);
@@ -51,11 +80,13 @@ void SchemeInertial::update_faces(double dt)
             const double den  = 1.0 + gdt * nf * nf * std::fabs(q0)
                                       / std::pow(hfr, 7.0 / 3.0);
             F.qx[f] = num / den;
+            // fastest characteristic through this face: advection + gravity wave
+            smax = std::max(smax, std::fabs(F.qx[f]) / hfr + std::sqrt(G * hf));
         }
     }
 
     // ---- north-south faces ----------------------------------------------
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) reduction(max:smax)
     for (int j = 1; j < g.ny; ++j) {
         for (int i = 0; i < g.nx; ++i) {
             const std::size_t L = g.k(i, j - 1);   // north neighbour
@@ -74,8 +105,11 @@ void SchemeInertial::update_faces(double dt)
             const double den  = 1.0 + gdt * nf * nf * std::fabs(q0)
                                       / std::pow(hfr, 7.0 / 3.0);
             F.qy[f] = num / den;
+            smax = std::max(smax, std::fabs(F.qy[f]) / hfr + std::sqrt(G * hf));
         }
     }
+
+    last_max_speed = smax;
 }
 
 // -----------------------------------------------------------------------------
@@ -271,6 +305,7 @@ void SchemeInertial::dry_cells(MassBalance& mb)
 double SchemeInertial::step(double t, MassBalance& mb)
 {
     const double dt = stable_dt();
+    dt_prev = dt;
     update_faces(dt);
     apply_boundaries(t, dt);
     limit_fluxes(dt);
