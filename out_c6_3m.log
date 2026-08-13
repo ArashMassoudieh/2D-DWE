@@ -1,0 +1,159 @@
+NOTE: aggregating 1 m terrain by MEAN at 3.0 m lowers ridge
+      crests and raises channel inverts -- a one-directional bias,
+      always toward more spill. See DESIGN 4.3.
+
+terrain       /home/arash/Dropbox/Chloeta/NHA/WS3_GIS/NM15-097/outputs_2D/cliped_dem.tif
+              1457 x 702 @ 3.00 m  (requested 3.00 m)
+inflow        HMS Reach_58, 6-hr 100-yr TRANSIENT hydrograph
+              peak 918.3 m3/s (32431 cfs) at 4.05 h, volume 4720 ac-ft, 9.0 h long
+              over rows 664-674 on the west edge
+              located from the terrain: west-edge low 1886.55 m at row 672,
+              face width 30 m (98 ft) within 3.0 m of it
+outflow       normal depth, full east edge, S = 0.0050
+roughness     n = 0.035 - 0.050 (mean 0.0498) from NLCD
+=====================================================================
+2D-DWE  --  Scheme A, local inertial (Bates et al. 2010)
+=====================================================================
+case          c6
+grid          1457 x 702  @ 3.00 m   (1022814 cells)
+duration      32400 s,  CFL 0.70
+thresholds    h_dry 0.0020  h_wet 0.0050  h_face 0.0010 m
+---------------------------------------------------------------------
+  step      500  t   2500.00 s  dt  5.00000  hmax  0.0000 m  vol        0.000 m3
+  step     1000  t   5000.00 s  dt  5.00000  hmax  0.0000 m  vol        0.000 m3
+  step     1500  t   7500.00 s  dt  5.00000  hmax  0.0000 m  vol        0.000 m3
+  step     2000  t   9962.11 s  dt  0.45863  hmax  0.0080 m  vol        0.375 m3
+  step     2500  t  10475.86 s  dt  0.61609  hmax  0.5950 m  vol      249.017 m3
+  step     3000  t  10688.16 s  dt  0.34597  hmax  1.5813 m  vol     2739.906 m3
+  step     3500  t  10846.89 s  dt  0.29726  hmax  2.1599 m  vol     7575.705 m3
+  step     4000  t  10989.21 s  dt  0.27347  hmax  2.6121 m  vol    14524.503 m3
+  step     4500  t  11121.18 s  dt  0.25507  hmax  3.0027 m  vol    23357.083 m3
+  step     5000  t  11244.97 s  dt  0.24031  hmax  3.3679 m  vol    33886.126 m3
+  step     5500  t  11362.01 s  dt  0.22835  hmax  3.7145 m  vol    46175.894 m3
+  step     6000  t  11473.09 s  dt  0.21619  hmax  4.0954 m  vol    60526.263 m3
+  step     6500  t  11578.63 s  dt  0.20591  hmax  4.4635 m  vol    76984.566 m3
+  step     7000  t  11679.06 s  dt  0.19624  hmax  4.8336 m  vol    95770.736 m3
+  step     7500  t  11775.19 s  dt  0.18838  hmax  5.1609 m  vol   116730.791 m3
+  step     8000  t  11867.59 s  dt  0.18164  hmax  5.3899 m  vol   139562.520 m3
+  step     8500  t  11957.23 s  dt  0.17709  hmax  5.5469 m  vol   163953.561 m3
+  step     9000  t  12044.93 s  dt  0.17373  hmax  5.6697 m  vol   189305.076 m3
+  step     9500  t  12131.10 s  dt  0.17106  hmax  5.7549 m  vol   214804.073 m3
+  step    10000  t  12216.08 s  dt  0.16896  hmax  5.8246 m  vol   240681.906 m3
+  step    10500  t  12300.10 s  dt  0.16714  hmax  5.8891 m  vol   267198.679 m3
+  step    11000  t  12383.31 s  dt  0.16579  hmax  5.9498 m  vol   294880.012 m3
+  step    11500  t  12465.98 s  dt  0.16497  hmax  6.0123 m  vol   323643.280 m3
+  step    12000  t  12548.30 s  dt  0.16436  hmax  6.0748 m  vol   354385.482 m3
+  step    12500  t  12630.37 s  dt  0.16391  hmax  6.1435 m  vol   386962.744 m3
+  step    13000  t  12712.19 s  dt  0.16337  hmax  6.2147 m  vol   421775.066 m3
+  step    13500  t  12793.43 s  dt  0.16127  hmax  6.2820 m  vol   458677.673 m3
+  step    14000  t  12873.48 s  dt  0.15899  hmax  6.3440 m  vol   497150.114 m3
+  step    14500  t  12952.44 s  dt  0.15687  hmax  6.4029 m  vol   537123.306 m3
+  step    15000  t  13030.42 s  dt  0.15511  hmax  6.4512 m  vol   578267.029 m3
+  step    15500  t  13107.57 s  dt  0.15351  hmax  6.4979 m  vol   620194.355 m3
+  step    16000  t  13183.97 s  dt  0.15216  hmax  6.5356 m  vol   663442.561 m3
+  step    16500  t  13259.76 s  dt  0.15104  hmax  6.5694 m  vol   707674.147 m3
+  step    17000  t  13335.01 s  dt  0.15001  hmax  6.5989 m  vol   752595.619 m3
+  step    17500  t  13409.83 s  dt  0.14928  hmax  6.6215 m  vol   798760.743 m3
+  step    18000  t  13484.30 s  dt  0.14858  hmax  6.6436 m  vol   845789.404 m3
+  step    18500  t  13558.44 s  dt  0.14806  hmax  6.6582 m  vol   893384.919 m3
+  step    19000  t  13632.37 s  dt  0.14763  hmax  6.6720 m  vol   941148.985 m3
+  step    19500  t  13706.07 s  dt  0.14724  hmax  6.6831 m  vol   988992.170 m3
+  step    20000  t  13779.63 s  dt  0.14698  hmax  6.6917 m  vol  1036885.032 m3
+  step    20500  t  13853.05 s  dt  0.14672  hmax  6.7001 m  vol  1084218.759 m3
+  step    21000  t  13926.36 s  dt  0.14652  hmax  6.7061 m  vol  1131848.766 m3
+  step    21500  t  13999.57 s  dt  0.14633  hmax  6.7120 m  vol  1179325.680 m3
+  step    22000  t  14072.69 s  dt  0.14615  hmax  6.7178 m  vol  1226930.769 m3
+  step    22500  t  14145.72 s  dt  0.14598  hmax  6.7233 m  vol  1275337.218 m3
+  step    23000  t  14218.67 s  dt  0.14581  hmax  6.7289 m  vol  1324364.788 m3
+  step    23500  t  14291.53 s  dt  0.14564  hmax  6.7345 m  vol  1373933.214 m3
+  step    24000  t  14364.30 s  dt  0.14546  hmax  6.7401 m  vol  1423659.768 m3
+  step    24500  t  14437.00 s  dt  0.14532  hmax  6.7443 m  vol  1472763.384 m3
+  step    25000  t  14509.63 s  dt  0.14521  hmax  6.7478 m  vol  1521746.838 m3
+  step    25500  t  14582.21 s  dt  0.14511  hmax  6.7510 m  vol  1570809.944 m3
+  step    26000  t  14654.77 s  dt  0.14514  hmax  6.7490 m  vol  1619972.237 m3
+  step    26500  t  14727.36 s  dt  0.14519  hmax  6.7476 m  vol  1668144.930 m3
+  step    27000  t  14799.97 s  dt  0.14532  hmax  6.7418 m  vol  1715435.746 m3
+  step    27500  t  14872.70 s  dt  0.14556  hmax  6.7341 m  vol  1762287.447 m3
+  step    28000  t  14945.54 s  dt  0.14581  hmax  6.7254 m  vol  1809229.523 m3
+  step    28500  t  15018.54 s  dt  0.14621  hmax  6.7120 m  vol  1855476.157 m3
+  step    29000  t  15091.75 s  dt  0.14663  hmax  6.6987 m  vol  1900887.604 m3
+  step    29500  t  15165.19 s  dt  0.14712  hmax  6.6823 m  vol  1945521.551 m3
+  step    30000  t  15238.89 s  dt  0.14768  hmax  6.6648 m  vol  1989670.718 m3
+  step    30500  t  15312.87 s  dt  0.14826  hmax  6.6463 m  vol  2033161.341 m3
+  step    31000  t  15387.16 s  dt  0.14892  hmax  6.6258 m  vol  2075635.450 m3
+  step    31500  t  15461.79 s  dt  0.14960  hmax  6.6050 m  vol  2116982.638 m3
+  step    32000  t  15536.77 s  dt  0.15033  hmax  6.5825 m  vol  2157858.818 m3
+  step    32500  t  15612.13 s  dt  0.15110  hmax  6.5595 m  vol  2198199.518 m3
+  step    33000  t  15687.87 s  dt  0.15189  hmax  6.5358 m  vol  2237736.414 m3
+  step    33500  t  15764.03 s  dt  0.15273  hmax  6.5112 m  vol  2276611.079 m3
+  step    34000  t  15840.60 s  dt  0.15359  hmax  6.4863 m  vol  2314359.141 m3
+  step    34500  t  15917.62 s  dt  0.15448  hmax  6.4608 m  vol  2350552.870 m3
+  step    35000  t  15995.09 s  dt  0.15540  hmax  6.4348 m  vol  2385215.156 m3
+  step    35500  t  16073.02 s  dt  0.15634  hmax  6.4086 m  vol  2418941.576 m3
+  step    36000  t  16151.43 s  dt  0.15731  hmax  6.3820 m  vol  2451416.872 m3
+  step    36500  t  16230.33 s  dt  0.15830  hmax  6.3552 m  vol  2483159.756 m3
+  step    37000  t  16309.73 s  dt  0.15931  hmax  6.3282 m  vol  2513834.520 m3
+  step    37500  t  16389.65 s  dt  0.16035  hmax  6.3008 m  vol  2539712.571 m3
+  step    38000  t  16470.08 s  dt  0.16139  hmax  6.2736 m  vol  2561293.715 m3
+  step    38500  t  16551.05 s  dt  0.16248  hmax  6.2459 m  vol  2578785.484 m3
+  step    39000  t  16632.56 s  dt  0.16356  hmax  6.2187 m  vol  2591716.960 m3
+  step    39500  t  16714.61 s  dt  0.16468  hmax  6.1918 m  vol  2600415.574 m3
+  step    40000  t  16797.07 s  dt  0.16510  hmax  6.1687 m  vol  2604400.600 m3
+  step    40500  t  16879.72 s  dt  0.16547  hmax  6.1455 m  vol  2603972.419 m3
+  step    41000  t  16962.55 s  dt  0.16585  hmax  6.1225 m  vol  2599601.235 m3
+  step    41500  t  17045.57 s  dt  0.16622  hmax  6.0995 m  vol  2592164.407 m3
+  step    42000  t  17128.77 s  dt  0.16660  hmax  6.0871 m  vol  2581912.440 m3
+  step    42500  t  17212.17 s  dt  0.16697  hmax  6.0930 m  vol  2569583.539 m3
+  step    43000  t  17295.75 s  dt  0.16736  hmax  6.0956 m  vol  2555380.194 m3
+  step    43500  t  17379.52 s  dt  0.16774  hmax  6.0985 m  vol  2539314.062 m3
+  step    44000  t  17463.49 s  dt  0.16813  hmax  6.0990 m  vol  2521700.069 m3
+  step    44500  t  17547.66 s  dt  0.16854  hmax  6.0974 m  vol  2502762.549 m3
+  step    45000  t  17632.03 s  dt  0.16896  hmax  6.0953 m  vol  2482728.318 m3
+  step    45500  t  17716.62 s  dt  0.16939  hmax  6.0910 m  vol  2461613.539 m3
+  step    46000  t  17801.42 s  dt  0.16985  hmax  6.0872 m  vol  2439533.063 m3
+  step    46500  t  17886.47 s  dt  0.17032  hmax  6.0820 m  vol  2416512.256 m3
+  step    47000  t  17971.75 s  dt  0.17082  hmax  6.0763 m  vol  2392729.654 m3
+  step    47500  t  18057.30 s  dt  0.17136  hmax  6.0690 m  vol  2368383.580 m3
+  step    48000  t  18143.11 s  dt  0.17191  hmax  6.0612 m  vol  2343326.556 m3
+  step    48500  t  18229.21 s  dt  0.17250  hmax  6.0525 m  vol  2317577.493 m3
+  step    49000  t  18315.61 s  dt  0.17311  hmax  6.0435 m  vol  2291372.517 m3
+  step    49500  t  18402.33 s  dt  0.17377  hmax  6.0333 m  vol  2264882.762 m3
+  step    50000  t  18489.39 s  dt  0.17445  hmax  6.0226 m  vol  2238152.128 m3
+  step    50500  t  18576.79 s  dt  0.17518  hmax  6.0108 m  vol  2211068.170 m3
+  step    51000  t  18664.57 s  dt  0.17594  hmax  5.9987 m  vol  2183821.069 m3
+  step    51500  t  18752.69 s  dt  0.17650  hmax  5.9860 m  vol  2156387.244 m3
+  step    52000  t  18841.07 s  dt  0.17705  hmax  5.9730 m  vol  2128751.241 m3
+  step    52500  t  18929.74 s  dt  0.17764  hmax  5.9594 m  vol  2101052.902 m3
+  step    53000  t  19018.72 s  dt  0.17828  hmax  5.9454 m  vol  2073384.869 m3
+  step    53500  t  19108.04 s  dt  0.17898  hmax  5.9310 m  vol  2045606.570 m3
+  step    54000  t  19197.71 s  dt  0.17974  hmax  5.9164 m  vol  2017737.808 m3
+  step    54500  t  19287.78 s  dt  0.18056  hmax  5.9015 m  vol  1989880.514 m3
+  step    55000  t  19378.28 s  dt  0.18146  hmax  5.8861 m  vol  1962092.520 m3
+  step    55500  t  19469.25 s  dt  0.18241  hmax  5.8704 m  vol  1934234.773 m3
+  step    56000  t  19560.71 s  dt  0.18343  hmax  5.8546 m  vol  1906302.299 m3
+  step    56500  t  19652.69 s  dt  0.18452  hmax  5.8386 m  vol  1878365.542 m3
+  step    57000  t  19745.24 s  dt  0.18570  hmax  5.8223 m  vol  1850425.597 m3
+  step    57500  t  19838.40 s  dt  0.18697  hmax  5.8058 m  vol  1822476.639 m3
+  step    58000  t  19932.24 s  dt  0.18840  hmax  5.7892 m  vol  1794617.349 m3
+  step    58500  t  20026.82 s  dt  0.18994  hmax  5.7724 m  vol  1766885.835 m3
+  step    59000  t  20121.97 s  dt  0.19064  hmax  5.7554 m  vol  1739336.999 m3
+  step    59500  t  20217.48 s  dt  0.19144  hmax  5.7384 m  vol  1711968.242 m3
+  step    60000  t  20313.43 s  dt  0.19236  hmax  5.7213 m  vol  1684804.783 m3
+  step    60500  t  20409.86 s  dt  0.19336  hmax  5.7041 m  vol  1657849.297 m3
+  step    61000  t  20506.80 s  dt  0.19443  hmax  5.6869 m  vol  1631126.192 m3
+  step    61500  t  20604.30 s  dt  0.19556  hmax  5.6695 m  vol  1604638.386 m3
+  step    62000  t  20702.31 s  dt  0.19648  hmax  5.6522 m  vol  1578411.217 m3
+  step    62500  t  20800.79 s  dt  0.19748  hmax  5.6348 m  vol  1552469.380 m3
+  step    63000  t  20899.80 s  dt  0.19857  hmax  5.6173 m  vol  1526790.172 m3
+  step    63500  t  20999.39 s  dt  0.19981  hmax  5.5997 m  vol  1501390.404 m3
+  step    64000  t  21099.63 s  dt  0.20116  hmax  5.5821 m  vol  1476270.570 m3
+  step    64500  t  21200.57 s  dt  0.20262  hmax  5.5644 m  vol  1451407.837 m3
+  step    65000  t  21302.26 s  dt  0.20414  hmax  5.5466 m  vol  1426825.136 m3
+  step    65500  t  21404.72 s  dt  0.20569  hmax  5.5288 m  vol  1402514.567 m3
+  step    66000  t  21507.95 s  dt  0.20723  hmax  5.5109 m  vol  1378507.737 m3
+  step    66500  t  21611.68 s  dt  0.20761  hmax  5.4930 m  vol  1354908.085 m3
+  step    67000  t  21715.56 s  dt  0.20789  hmax  5.4751 m  vol  1331759.143 m3
+  step    67500  t  21819.58 s  dt  0.20819  hmax  5.4572 m  vol  1309033.727 m3
+  step    68000  t  21923.75 s  dt  0.20849  hmax  5.4394 m  vol  1286746.140 m3
+  step    68500  t  22028.08 s  dt  0.20881  hmax  5.4215 m  vol  1264904.920 m3
+  step 

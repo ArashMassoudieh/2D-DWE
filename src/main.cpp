@@ -357,6 +357,19 @@ int main(int argc, char** argv)
     double t = 0.0, t_next_out = 0.0;
     long   step = 0, nout = 0;
 
+    // Running maximum depth, updated EVERY step.
+    //
+    // This used to write F.h at the end of the run and call it depth_max. On a
+    // steady inflow the final state is the maximum, so the file looked right and
+    // the error stayed hidden. With a real hydrograph it is not even close: the
+    // 10 m run peaks at 6.62 m near t = 4 h and has fallen to 3.40 m by the end,
+    // so the "maximum" was reporting barely half the flood.
+    //
+    // Sampling at the output cadence would not fix it either -- the peak does not
+    // land on an output step. Envelope quantities must be accumulated per step.
+    std::vector<double> h_max(c.g.ncell(), 0.0);
+    std::vector<double> wse_max(c.g.ncell(), -9999.0);
+
     while (t < c.p.t_end && step < c.p.max_steps) {
         if (c.p.write_vti && t >= t_next_out) {
             char path[512];
@@ -368,6 +381,12 @@ int main(int argc, char** argv)
         }
 
         const double dt = solver.step(t, mb);
+        for (std::size_t k = 0; k < c.g.ncell(); ++k) {
+            if (F.h[k] > h_max[k]) {
+                h_max[k]   = F.h[k];
+                wse_max[k] = F.H(k);
+            }
+        }
         t += dt;
         ++step;
 
@@ -424,12 +443,23 @@ int main(int argc, char** argv)
 
 #ifdef DWE_WITH_GDAL
     if (c.name == "c6") {
-        write_gtiff(c.p.out_dir + "/depth_max.tif", c.g, F.h);
+        for (std::size_t k = 0; k < c.g.ncell(); ++k)
+            if (h_max[k] <= c.p.h_dry) wse_max[k] = -9999.0;
+        write_gtiff(c.p.out_dir + "/depth_max.tif", c.g, h_max);
+        write_gtiff(c.p.out_dir + "/wse_max.tif",   c.g, wse_max);
+
         std::vector<double> wse_f(c.g.ncell());
         for (std::size_t k = 0; k < c.g.ncell(); ++k)
             wse_f[k] = (F.h[k] > c.p.h_dry) ? F.H(k) : -9999.0;
-        write_gtiff(c.p.out_dir + "/wse_final.tif", c.g, wse_f);
-        std::printf("  wrote depth_max.tif and wse_final.tif to %s/\n", c.p.out_dir.c_str());
+        write_gtiff(c.p.out_dir + "/depth_final.tif", c.g, F.h);
+        write_gtiff(c.p.out_dir + "/wse_final.tif",   c.g, wse_f);
+
+        double hm = 0.0;
+        for (std::size_t k = 0; k < c.g.ncell(); ++k) hm = std::max(hm, h_max[k]);
+        std::printf("  peak depth anywhere over the whole run  %.3f m (%.2f ft)\n",
+                    hm, hm * 3.280839895);
+        std::printf("  wrote depth_max / wse_max / depth_final / wse_final .tif to %s/\n",
+                    c.p.out_dir.c_str());
     }
 #endif
     std::printf("  wrote %ld .vti frames to %s/\n", nout, c.p.out_dir.c_str());
