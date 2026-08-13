@@ -274,6 +274,12 @@ static Case make_c6(double dx_target, Agg agg)
 // -----------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
+    // Line-buffer stdout. Redirected to a file it is block-buffered by default,
+    // so a multi-hour run shows an EMPTY log for its first several minutes and
+    // looks hung when it is not. Progress output is worthless if it arrives 4 KB
+    // at a time.
+    std::setvbuf(stdout, nullptr, _IOLBF, 0);
+
     std::string which = "plane";
     std::string outdir;
     double tend = -1.0;
@@ -458,8 +464,33 @@ int main(int argc, char** argv)
         for (std::size_t k = 0; k < c.g.ncell(); ++k) hm = std::max(hm, h_max[k]);
         std::printf("  peak depth anywhere over the whole run  %.3f m (%.2f ft)\n",
                     hm, hm * 3.280839895);
-        std::printf("  wrote depth_max / wse_max / depth_final / wse_final .tif to %s/\n",
-                    c.p.out_dir.c_str());
+
+        // ---- DEPTH HAZARD BANDS -------------------------------------------
+        // Thresholds are stated in FEET because that is the unit the report and
+        // the client use, but the solver is SI throughout, so they are converted
+        // here rather than anywhere near the physics.
+        //
+        // The classified raster stores the THRESHOLD ITSELF (0/1/3/6), not an
+        // ordinal 0/1/2/3. A reviewer opening it in QGIS then reads the legend
+        // directly instead of having to find a key in a document.
+        static const double BAND_FT[3] = { 1.0, 3.0, 6.0 };
+        const double FT   = 3.280839895;
+        const double acre = c.g.dx * c.g.dx / 4046.8564224;
+
+        std::vector<double> band(c.g.ncell(), 0.0);
+        std::size_t nb[3] = { 0, 0, 0 };
+        for (std::size_t k = 0; k < c.g.ncell(); ++k) {
+            const double dft = h_max[k] * FT;
+            for (int q = 0; q < 3; ++q)
+                if (dft > BAND_FT[q]) { ++nb[q]; band[k] = BAND_FT[q]; }
+        }
+        std::printf("  depth bands (max over the run, area above each threshold):\n");
+        for (int q = 0; q < 3; ++q)
+            std::printf("      > %.0f ft : %9zu cells  %10.1f acres  %8.3f sq mi\n",
+                        BAND_FT[q], nb[q], nb[q] * acre, nb[q] * acre / 640.0);
+        write_gtiff(c.p.out_dir + "/depth_bands.tif", c.g, band);
+        std::printf("  wrote depth_max / wse_max / depth_final / wse_final / depth_bands"
+                    " .tif to %s/\n", c.p.out_dir.c_str());
     }
 #endif
     std::printf("  wrote %ld .vti frames to %s/\n", nout, c.p.out_dir.c_str());
