@@ -48,10 +48,10 @@ struct MassBalance
         const double e = error(v_now);
         const double r = relative_error(v_now);
         std::printf("  mass balance @ t=%10.2f s :"
-                    " in %12.3f  out %12.3f  stored %12.3f  discarded %10.4f"
+                    " in %12.3f  rain %10.3f  out %12.3f  stored %12.3f  discarded %10.4f"
                     "  film %10.1f (%zu cells)"
                     "  err %11.4e m3 (%8.3e)  %s\n",
-                    t, v_in, v_out, v_now, v_discarded, v_film, n_film, e, r,
+                    t, v_in, v_rain, v_out, v_now, v_discarded, v_film, n_film, e, r,
                     std::fabs(r) < tol ? "OK" : "*** FAILS ***");
     }
 };

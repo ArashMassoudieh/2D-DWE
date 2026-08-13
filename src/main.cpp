@@ -344,6 +344,30 @@ int main(int argc, char** argv)
 #endif
 
     SchemeInertial solver(F, c.p, c.bcs);
+
+    // ---- DIRECT RAINFALL ON THE DOMAIN ------------------------------------
+    // Excess precipitation, applied uniformly. This is NOT double counting the
+    // boundary hydrograph: only 147 of the domain's 2,275 acres lie inside any
+    // delineated subwatershed, and that subbasin (70) drains straight to the
+    // Outlet without passing through Reach_58. The community bench is outside
+    // the watershed altogether -- the controlling divide IS the watershed
+    // boundary. See tools/hms_rainfall.py.
+    if (c.name == "c6") {
+        const std::string rcsv = std::string(C6_DIR) + "/rain_excess_6hr_100yr.csv";
+        solver.source = Series::from_csv(rcsv);
+        if (solver.source.t.size() < 2) {
+            std::printf("rainfall      NONE -- could not read %s\n", rcsv.c_str());
+        } else {
+            double dep = 0.0;
+            for (std::size_t i = 1; i < solver.source.t.size(); ++i)
+                dep += solver.source.v[i - 1] * (solver.source.t[i] - solver.source.t[i - 1]);
+            std::printf("rainfall      excess precipitation, uniform over the domain\n"
+                        "              %.4f in (%.1f ac-ft), peak %.3f in/h, %.1f h long\n",
+                        dep / 0.0254, dep * c.g.ncell() * c.g.area() / 1233.4818,
+                        solver.source.peak() * 3600.0 / 0.0254,
+                        solver.source.span() / 3600.0);
+        }
+    }
     MassBalance mb;
     mb.set_initial(F.volume());
 

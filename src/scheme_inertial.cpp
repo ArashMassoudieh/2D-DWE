@@ -255,12 +255,12 @@ void SchemeInertial::update_depths(double dt, MassBalance& mb)
             const double qe = F.qx[g.fx(i + 1, j)];
             const double qn = F.qy[g.fy(i, j)];
             const double qs = F.qy[g.fy(i, j + 1)];
-            double hn = F.h[k] - c * ( (qe - qw) + (qs - qn) ) + dt * source;
+            double hn = F.h[k] - c * ( (qe - qw) + (qs - qn) ) + dt * src_now;
             F.h[k] = (hn > 0.0) ? hn : 0.0;   // the limiter should make this a no-op
         }
     }
 
-    if (source != 0.0) mb.v_rain += source * dt * A * double(g.ncell());
+    if (src_now != 0.0) mb.v_rain += src_now * dt * A * double(g.ncell());
 
     // Boundary volumes, tallied from the faces actually used this step.
     for (const auto& b : BC) {
@@ -331,6 +331,10 @@ double SchemeInertial::step(double t, MassBalance& mb)
 {
     const double dt = stable_dt();
     dt_prev = dt;
+    // Sample the rainfall series at the MIDPOINT of the step. Sampling at the
+    // start biases a step function high on a rising limb and low on a falling
+    // one; the midpoint is second-order and costs nothing.
+    src_now = source.t.empty() ? 0.0 : source.at(t + 0.5 * dt);
     update_faces(dt);
     apply_boundaries(t, dt);
     limit_fluxes(dt);

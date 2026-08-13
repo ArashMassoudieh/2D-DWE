@@ -51,10 +51,16 @@ public:
 
 private:
     mutable double dt_prev = 0.0;
+    double src_now = 0.0;   // source rate used by the current step
 public:
 
-    // Optional uniform source (rainfall etc.), m/s. Zero by default.
-    double source = 0.0;
+    // Spatially uniform source term s(t) in Equation (continuity), m/s -- direct
+    // rainfall on the domain. Empty by default, which evaluates to zero.
+    //
+    // This is EXCESS precipitation, not gross rainfall: the solver has no
+    // infiltration model, so feeding it the gross storm depth would route all of
+    // it as runoff. See tools/hms_rainfall.py.
+    Series source;
 
 private:
     void update_faces(double dt);
