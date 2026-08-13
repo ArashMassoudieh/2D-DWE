@@ -3,8 +3,8 @@
 A two-dimensional overland-flow solver for the Coyote Canyon (NHA WS3 cluster C6) spill
 problem, and for parameter sweeps that HEC-RAS makes impractical.
 
-Status: **design only.** No code written yet. Decisions marked **[OPEN]** need settling
-before implementation starts.
+Status: **Scheme A implemented and verified** (see Appendix A). Decisions marked
+**[OPEN]** are still open; they do not block what is built.
 
 ---
 

@@ -30,3 +30,15 @@
 *.exe
 *.out
 *.app
+
+# --- build artefacts (qmake) ---
+Makefile
+Makefile.qmake
+build/
+bin/
+*.pro.user
+
+# --- run output ---
+out/
+out_*/
+*.vti

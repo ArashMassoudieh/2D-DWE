@@ -3,9 +3,33 @@
 A two-dimensional overland-flow solver for the Coyote Canyon (NHA WS3 cluster C6) spill
 problem, and for the mitigation parameter sweeps that HEC-RAS makes impractical.
 
-**Status: design only. No code yet.**
+**Status: Scheme A implemented and verified.**
 
-Start with **[DESIGN.md](DESIGN.md)**.
+Start with **[DESIGN.md](DESIGN.md)**; the implementation log is Appendix A.
+
+## Build
+
+Use **`qmake6`** — plain `qmake` on this machine is a broken Qt5 symlink. In Qt Creator,
+check the kit's qmake is qmake6.
+
+```
+qmake6 2D-DWE.pro && make -j
+./bin/2D-DWE plane            # Manning normal depth, analytical check
+./bin/2D-DWE pond --tend 40000
+```
+
+The solver core has no third-party dependency. `CONFIG+=with_gdal` adds raster I/O,
+`CONFIG+=with_vtk` the interactive viewer. Results write as `.vti` either way and open
+in ParaView.
+
+## Verification status
+
+| test | criterion | result |
+|---|---|---|
+| tilted plane | Manning normal depth | 0.2276 m expected, **0.2276 m** (+0.00 %) |
+| closed depression | nothing over the rim | **0.00000 m** |
+| closed depression | drains to the notch | 8.43 → 8.14 → **8.04 m** at 2/10/40 ks |
+| both | mass closure | **< 1e-14** |
 
 ## The problem in one paragraph
 
