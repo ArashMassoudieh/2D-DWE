@@ -5,7 +5,9 @@ from matplotlib.colors import BoundaryNorm, ListedColormap, LightSource
 from osgeo import gdal, ogr
 gdal.UseExceptions(); ogr.UseExceptions()
 
-OUT="/home/arash/Projects/2D-DWE/out_c6_10m"
+import sys
+OUT=sys.argv[1] if len(sys.argv)>1 else "/home/arash/Projects/2D-DWE/out_c6_10m_tr"
+DXM=float(sys.argv[2]) if len(sys.argv)>2 else 10.0
 SHP="/home/arash/Dropbox/Chloeta/NHA/WS3_GIS/NM15-097/outputs"
 DEM="/home/arash/Dropbox/Chloeta/NHA/WS3_GIS/NM15-097/outputs_2D/cliped_dem.tif"
 FT=3.280839895
@@ -41,7 +43,7 @@ gs=fig.add_gridspec(2,1,height_ratios=[2.05,1],hspace=.16)
 
 ax=fig.add_subplot(gs[0])
 ls=LightSource(azdeg=315,altdeg=45)
-ax.imshow(ls.hillshade(zb,vert_exag=3,dx=10,dy=10),cmap="gray",extent=ext,alpha=.85,zorder=1)
+ax.imshow(ls.hillshade(zb,vert_exag=3,dx=DXM,dy=DXM),cmap="gray",extent=ext,alpha=.85,zorder=1)
 lv=[0.5,1,2,3,5,8,12,25]
 cm=ListedColormap(["#c6e5f5","#8ec9ec","#4ba3d8","#2272b5","#1a4f95","#0d2f6e","#5a1a6e"])
 im=ax.imshow(np.ma.masked_less(a*FT,0.5),cmap=cm,norm=BoundaryNorm(lv,cm.N),
@@ -53,7 +55,7 @@ ov=hc*FT>0.5
 ax.scatter(bx[ov],by[ov],s=13,c="#e8112d",zorder=7,label="Barrier overtopped")
 cb=fig.colorbar(im,ax=ax,shrink=.9,pad=.012,ticks=lv); cb.set_label("Maximum depth (ft)",fontsize=10)
 ax.set_title("C6 Coyote Canyon — 2D-DWE local-inertial solver, 100-yr peak 32,628 cfs\n"
-             "10 m grid, 1-hour run (NOT at steady state) — PRELIMINARY",fontsize=12)
+             "%.0f m grid, 9-hour transient run to full recession — PRELIMINARY" % DXM,fontsize=12)
 ax.set_xlabel("UTM Zone 12N Easting (m)");ax.set_ylabel("Northing (m)")
 ax.legend(loc="lower left",fontsize=9,framealpha=.92)
 sx,sy=ext[0]+300,ext[2]+180
@@ -66,7 +68,7 @@ ax.set_aspect("equal")
 
 ax2=fig.add_subplot(gs[1])
 sf=s*FT
-ax2.fill_between(sf,zc*FT,zc.min()*FT-8,color="#c8b89a",zorder=2,label="Barrier crest (10 m model grid, MEAN-aggregated)")
+ax2.fill_between(sf,zc*FT,zc.min()*FT-8,color="#c8b89a",zorder=2,label="Barrier crest (%.0f m model grid, MEAN-aggregated)" % DXM)
 ax2.plot(sf,zc*FT,c="#6b5b3e",lw=1.6,zorder=3)
 ax2.plot(sf,wc*FT,c="#1a4f95",lw=2.0,zorder=4,label="Peak water surface")
 ax2.fill_between(sf,zc*FT,wc*FT,where=hc*FT>0.5,color="#e8112d",alpha=.45,zorder=3,
