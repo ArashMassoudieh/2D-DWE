@@ -323,51 +323,114 @@ static Case make_nm141(double dx_target, Agg agg, const std::string& dem_overrid
     c.p.dt_max       = 5.0;
     c.h0.assign(c.g.ncell(), 0.0);
 
-    // --- inflow: SOUTH edge, located from the terrain ----------------------
-    // Same rule as C6: take the edge's elevation minimum and walk outward while
-    // the ground stays within BAND_M of it. The channel is broad and only
-    // weakly incised where it enters here, so the face comes out wide -- which
-    // is correct, and is why the band is found rather than assumed.
-    const double BAND_M = 3.0;
-    const int jS = c.g.ny - 1;
-    double zmin = 1e30; int imin = 0;
-    for (int i = 0; i < c.g.nx; ++i) {
-        const double zz = c.z[c.g.k(i, jS)];
-        if (zz < zmin) { zmin = zz; imin = i; }
-    }
-    int ilo = imin, ihi = imin;
-    while (ilo > 0          && c.z[c.g.k(ilo - 1, jS)] <= zmin + BAND_M) --ilo;
-    while (ihi < c.g.nx - 1 && c.z[c.g.k(ihi + 1, jS)] <= zmin + BAND_M) ++ihi;
+    // --- THREE inflows: the wash and both tributaries -----------------------
+    //
+    // The HMS topology has three reaches crossing into this domain, and the
+    // first version of this case used only one of them. Reach_122 from the west
+    // is nearly as large as the main wash and was missing entirely, so the model
+    // was carrying 51 % of the peak and 43 % of the volume:
+    //
+    //   Reach_147  SOUTH edge  3,870 cfs  394 ac-ft   the main wash
+    //   Reach_122  WEST  edge  3,374 cfs  399 ac-ft   <-- was omitted
+    //   Reach_99   EAST  edge    424 cfs   78 ac-ft   <-- was omitted
+    //   local Subbasins 1,2,3,57  265 cfs  43 ac-ft   not represented (5 %)
+    //   HMS Outlet total        7,619 cfs  915 ac-ft
+    //
+    // The three reaches carry 95 % of the outlet volume, so boundary inflows are
+    // the right representation here and direct rainfall is a minor refinement.
+    // That is the OPPOSITE of C6, where 94 % of the domain lay outside any
+    // subwatershed and the local rainfall term was the only local contribution.
+    //
+    // Each face is located from the terrain NEAR THE KNOWN NHD CROSSING rather
+    // than at the edge's global minimum. On the west edge the tributary is only
+    // 0.4 m below its surroundings -- a global-minimum search finds it by luck,
+    // not by construction, and would silently move if the DEM changed.
+    struct InflowSpec { Side side; double target; const char* csv; const char* name; };
+    const InflowSpec specs[3] = {
+        { Side::South, 711299.0, "/inflow_south_6hr_100yr.csv", "Reach_147, main wash (south)" },
+        { Side::West,  3960293.0, "/inflow_west_6hr_100yr.csv", "Reach_122, west tributary"    },
+        { Side::East,  3959922.0, "/inflow_east_6hr_100yr.csv", "Reach_99, east tributary"     },
+    };
+    const double BAND_M   = 3.0;
+    const double SEARCH_M = 60.0;
+    // MAX_FACE_M caps the inflow face. The main wash is incised 5.4 m at the
+    // south edge and the band walk finds it cleanly, but NEITHER tributary is
+    // incised where it crosses: the west edge is flat to within 0.8 m over
+    // 400 m and the east edge simply rises monotonically. With nothing to stop
+    // it the walk ran to 708 m and 906 m, which would spread 3,374 cfs into an
+    // unphysical sheet a few inches deep.
+    //
+    // The cap is an ASSUMPTION, not a measurement, and it matters: at 60 m the
+    // west tributary enters about 3 ft deep, at 200 m about 1.5 ft. It is set
+    // here so it can be found and tested rather than buried.
+    const double MAX_FACE_M = 60.0;
 
-    Boundary in;
-    in.side  = Side::South;
-    in.type  = BcType::Inflow;
-    in.begin = ilo;
-    in.end   = ihi + 1;
-    const std::string qcsv = std::string(NM141_DIR) + "/inflow_6hr_100yr.csv";
-    in.Q = Series::from_csv(qcsv);
-    if (in.Q.t.size() < 2) {
-        std::printf("*** could not read %s -- falling back to a STEADY peak.\n", qcsv.c_str());
-        in.Q = Series::constant(3870.1 * 0.028316847);
+    std::vector<Boundary> bcs;
+    for (const auto& sp : specs) {
+        const bool horiz = (sp.side == Side::South || sp.side == Side::North);
+        const int  n     = horiz ? c.g.nx : c.g.ny;
+        // index of the target coordinate along this edge
+        const int ctr = horiz ? int((sp.target - c.g.x0) / c.g.dx)
+                              : int((c.g.y0 - sp.target) / c.g.dx);
+        const int rad = std::max(1, int(SEARCH_M / c.g.dx));
+
+        auto zedge = [&](int m) {
+            switch (sp.side) {
+            case Side::South: return c.z[c.g.k(m, c.g.ny - 1)];
+            case Side::North: return c.z[c.g.k(m, 0)];
+            case Side::West:  return c.z[c.g.k(0, m)];
+            default:          return c.z[c.g.k(c.g.nx - 1, m)];
+            }
+        };
+        double zmin = 1e30; int mmin = std::min(std::max(ctr, 0), n - 1);
+        for (int m = std::max(0, ctr - rad); m <= std::min(n - 1, ctr + rad); ++m)
+            if (zedge(m) < zmin) { zmin = zedge(m); mmin = m; }
+        int lo = mmin, hi = mmin;
+        const int maxhalf = std::max(1, int(0.5 * MAX_FACE_M / c.g.dx));
+        while (lo > 0     && zedge(lo - 1) <= zmin + BAND_M && mmin - lo < maxhalf) --lo;
+        while (hi < n - 1 && zedge(hi + 1) <= zmin + BAND_M && hi - mmin < maxhalf) ++hi;
+        const bool capped = (mmin - lo >= maxhalf) || (hi - mmin >= maxhalf);
+
+        Boundary in;
+        in.side  = sp.side;
+        in.type  = BcType::Inflow;
+        in.begin = lo;
+        in.end   = hi + 1;
+        in.Q     = Series::from_csv(std::string(NM141_DIR) + sp.csv);
+        in.name  = sp.name;
+        if (in.Q.t.size() < 2) {
+            std::printf("*** could not read %s%s -- that inflow is MISSING\n",
+                        NM141_DIR, sp.csv);
+            continue;
+        }
+        const char* sd = (sp.side == Side::South) ? "SOUTH"
+                       : (sp.side == Side::West)  ? "WEST" : "EAST";
+        std::printf("inflow        %-28s %-5s edge, peak %7.1f m3/s (%5.0f cfs)"
+                    " at %.2f h\n"
+                    "              %5.0f ac-ft, face %.0f m wide, edge low %.2f m\n",
+                    sp.name, sd, in.Q.peak(), in.Q.peak() / 0.028316847,
+                    in.Q.t_peak() / 3600.0, in.Q.volume() / 1233.4818,
+                    (in.end - in.begin) * c.g.dx, zmin);
+        if (capped)
+            std::printf("              NOTE: face CAPPED at %.0f m -- no incised channel"
+                        " on this edge, width is assumed\n", MAX_FACE_M);
+        bcs.push_back(in);
     }
-    in.name = "NM15-141 wash, 6-hr 100-yr";
 
     Boundary out;
     out.side  = Side::North;
     out.type  = BcType::NormalDepth;
-    out.slope = 0.010;          // reach-average thalweg slope, 17 m over 1,633 m
+    out.slope = 0.010;
     out.name  = "north edge outfall";
+    bcs.push_back(out);
+    c.bcs = bcs;
 
-    c.bcs = {in, out};
-
-    std::printf("inflow        RAS upstream hydrograph (Reach_147), 6-hr 100-yr\n"
-                "              peak %.1f m3/s (%.0f cfs) at %.2f h, volume %.0f ac-ft,"
-                " %.1f h long\n"
-                "              over cols %d-%d on the SOUTH edge (%.0f m wide),"
-                " edge low %.2f m\n",
-                in.Q.peak(), in.Q.peak() / 0.028316847, in.Q.t_peak() / 3600.0,
-                in.Q.volume() / 1233.4818, in.Q.span() / 3600.0,
-                in.begin, in.end, (in.end - in.begin) * c.g.dx, zmin);
+    double qtot = 0.0, vtot = 0.0;
+    for (const auto& b : c.bcs)
+        if (b.type == BcType::Inflow) { qtot += b.Q.peak(); vtot += b.Q.volume(); }
+    std::printf("              --- %zu inflows, peaks sum to %.0f cfs, volume %.0f ac-ft\n"
+                "              (HMS Outlet: 7,619 cfs, 915 ac-ft -- peaks are not concurrent)\n",
+                c.bcs.size() - 1, qtot / 0.028316847, vtot / 1233.4818);
     std::printf("outflow       normal depth, full north edge, S = %.3f\n", out.slope);
     return c;
 }
