@@ -169,6 +169,11 @@ static Case make_pond()
 static const char* C6_DIR =
     "/home/arash/Dropbox/Chloeta/NHA/WS3_GIS/NM15-097/outputs_2D";
 
+static const char* NM141_DIR =
+    "/home/arash/Dropbox/Chloeta/NHA/WS3_GIS/NM15-141Local/output_2D";
+static const char* NM141_LC =
+    "/home/arash/Dropbox/Chloeta/NHA/WS3_GIS/NM15-141Local/landcover/nlcd_2023_NM15-141Local.tif";
+
 static Case make_c6(double dx_target, Agg agg)
 {
     Case c;
@@ -272,6 +277,101 @@ static Case make_c6(double dx_target, Agg agg)
 #endif // DWE_WITH_GDAL
 
 // -----------------------------------------------------------------------------
+
+// =============================================================================
+// NM15-141Local -- second Coyote Canyon site, with a culverted road crossing.
+//
+// GEOMETRY: the wash runs SOUTH to NORTH, entering the south edge near easting
+// 711,290 at 1876.27 m and leaving the north edge near 711,285 at 1859.19 m --
+// a 17 m drop over 1,633 m. Inflow is therefore on the SOUTH edge and the
+// outfall on the NORTH, the opposite arrangement to C6.
+//
+// THE CULVERT is represented as a carved notch, not as a structure, and the DEM
+// is supplied on the command line (--dem) precisely so the notch width can be
+// swept. The crossing carries 3,870 cfs in the 100-year event while any
+// realistic barrel passes a few percent of it, so the road overtops and the
+// EMBANKMENT controls. Whether the culvert is represented at all should
+// therefore change little -- the sweep is how that gets demonstrated rather
+// than asserted.
+//
+// Do NOT feed this case outputs/dem_carved.tif from the GIS project. That DEM is
+// carved full-width for D8 delineation, which needs hydrologic connectivity;
+// used as 2D terrain it deletes the road as a control and can never overtop.
+// =============================================================================
+static Case make_nm141(double dx_target, Agg agg, const std::string& dem_override)
+{
+    Case c;
+    c.name = "nm141";
+
+    const std::string terr = dem_override.empty()
+                           ? std::string(NM141_DIR) + "/dem_2d_carved_2m.tif"
+                           : dem_override;
+    std::vector<char> valid;
+    std::string err;
+    if (!load_terrain(terr, dx_target, agg, c.g, c.z, valid, &err)) {
+        std::printf("*** terrain: %s\n", err.c_str());
+        std::exit(2);
+    }
+    std::printf("terrain       %s\n", terr.c_str());
+    std::printf("              %d x %d @ %.2f m  (requested %.2f m)\n",
+                c.g.nx, c.g.ny, c.g.dx, dx_target);
+
+    c.p.n_default    = 0.050;
+    c.p.t_end        = 9.0 * 3600.0;
+    c.p.t_out        = 1800.0;
+    c.p.report_every = 500;
+    c.p.dt_max       = 5.0;
+    c.h0.assign(c.g.ncell(), 0.0);
+
+    // --- inflow: SOUTH edge, located from the terrain ----------------------
+    // Same rule as C6: take the edge's elevation minimum and walk outward while
+    // the ground stays within BAND_M of it. The channel is broad and only
+    // weakly incised where it enters here, so the face comes out wide -- which
+    // is correct, and is why the band is found rather than assumed.
+    const double BAND_M = 3.0;
+    const int jS = c.g.ny - 1;
+    double zmin = 1e30; int imin = 0;
+    for (int i = 0; i < c.g.nx; ++i) {
+        const double zz = c.z[c.g.k(i, jS)];
+        if (zz < zmin) { zmin = zz; imin = i; }
+    }
+    int ilo = imin, ihi = imin;
+    while (ilo > 0          && c.z[c.g.k(ilo - 1, jS)] <= zmin + BAND_M) --ilo;
+    while (ihi < c.g.nx - 1 && c.z[c.g.k(ihi + 1, jS)] <= zmin + BAND_M) ++ihi;
+
+    Boundary in;
+    in.side  = Side::South;
+    in.type  = BcType::Inflow;
+    in.begin = ilo;
+    in.end   = ihi + 1;
+    const std::string qcsv = std::string(NM141_DIR) + "/inflow_6hr_100yr.csv";
+    in.Q = Series::from_csv(qcsv);
+    if (in.Q.t.size() < 2) {
+        std::printf("*** could not read %s -- falling back to a STEADY peak.\n", qcsv.c_str());
+        in.Q = Series::constant(3870.1 * 0.028316847);
+    }
+    in.name = "NM15-141 wash, 6-hr 100-yr";
+
+    Boundary out;
+    out.side  = Side::North;
+    out.type  = BcType::NormalDepth;
+    out.slope = 0.010;          // reach-average thalweg slope, 17 m over 1,633 m
+    out.name  = "north edge outfall";
+
+    c.bcs = {in, out};
+
+    std::printf("inflow        RAS upstream hydrograph (Reach_147), 6-hr 100-yr\n"
+                "              peak %.1f m3/s (%.0f cfs) at %.2f h, volume %.0f ac-ft,"
+                " %.1f h long\n"
+                "              over cols %d-%d on the SOUTH edge (%.0f m wide),"
+                " edge low %.2f m\n",
+                in.Q.peak(), in.Q.peak() / 0.028316847, in.Q.t_peak() / 3600.0,
+                in.Q.volume() / 1233.4818, in.Q.span() / 3600.0,
+                in.begin, in.end, (in.end - in.begin) * c.g.dx, zmin);
+    std::printf("outflow       normal depth, full north edge, S = %.3f\n", out.slope);
+    return c;
+}
+
 int main(int argc, char** argv)
 {
     // Line-buffer stdout. Redirected to a file it is block-buffered by default,
@@ -286,6 +386,7 @@ int main(int argc, char** argv)
     double tout = -1.0, cfl = -1.0;
     double dxt  = 3.0;                  // model cell size for the c6 case
     std::string aggs = "mean";
+    std::string demov;
     for (int a = 1; a < argc; ++a) {
         if (std::strcmp(argv[a], "--out") == 0 && a + 1 < argc) outdir = argv[++a];
         else if (std::strcmp(argv[a], "--tend") == 0 && a + 1 < argc) tend = std::atof(argv[++a]);
@@ -295,11 +396,24 @@ int main(int argc, char** argv)
         // frame is ~60 MB and the 60 s default would write 10 GB over a 3 h run.
         else if (std::strcmp(argv[a], "--tout") == 0 && a + 1 < argc) tout = std::atof(argv[++a]);
         else if (std::strcmp(argv[a], "--cfl")  == 0 && a + 1 < argc) cfl  = std::atof(argv[++a]);
+        // --dem runs one case against several terrains, which is what turns the
+        // culvert-notch sensitivity study into a loop rather than a rebuild.
+        else if (std::strcmp(argv[a], "--dem")  == 0 && a + 1 < argc) demov = argv[++a];
         else which = argv[a];
     }
 
     Case c;
     if (which == "pond")      c = make_pond();
+    else if (which == "nm141") {
+#ifdef DWE_WITH_GDAL
+        const Agg agg = (aggs == "min") ? Agg::Min
+                      : (aggs == "max") ? Agg::Max : Agg::Mean;
+        c = make_nm141(dxt, agg, demov);
+#else
+        std::printf("*** the nm141 case needs GDAL: rebuild with  qmake6 CONFIG+=with_gdal\n");
+        return 2;
+#endif
+    }
     else if (which == "c6") {
 #ifdef DWE_WITH_GDAL
         const Agg agg = (aggs == "min") ? Agg::Min
@@ -327,11 +441,14 @@ int main(int argc, char** argv)
     F.h = c.h0;
 
 #ifdef DWE_WITH_GDAL
-    if (c.name == "c6") {
+    if (c.name == "c6" || c.name == "nm141") {
         std::string err;
-        if (!load_manning(std::string(C6_DIR) + "/landcover_2d.tif",
-                          std::string(C6_DIR) + "/manning_n_2d.csv",
-                          c.g, F.n, c.p.n_default, &err)) {
+        const bool is141 = (c.name == "nm141");
+        const std::string lcras = is141 ? std::string(NM141_LC)
+                                        : std::string(C6_DIR) + "/landcover_2d.tif";
+        const std::string lccsv = is141 ? std::string(NM141_DIR) + "/manning_n_2d.csv"
+                                        : std::string(C6_DIR) + "/manning_n_2d.csv";
+        if (!load_manning(lcras, lccsv, c.g, F.n, c.p.n_default, &err)) {
             std::printf("*** roughness: %s -- falling back to a uniform n = %.3f\n",
                         err.c_str(), c.p.n_default);
         } else {
@@ -472,7 +589,7 @@ int main(int argc, char** argv)
     }
 
 #ifdef DWE_WITH_GDAL
-    if (c.name == "c6") {
+    if (c.name == "c6" || c.name == "nm141") {
         for (std::size_t k = 0; k < c.g.ncell(); ++k)
             if (h_max[k] <= c.p.h_dry) wse_max[k] = -9999.0;
         write_gtiff(c.p.out_dir + "/depth_max.tif", c.g, h_max);
