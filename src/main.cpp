@@ -58,6 +58,10 @@ struct Case
     std::vector<double>  h0;
     double               expect = -1.0;   // analytical answer, if there is one
     std::string          expect_what;
+    // Which design storm this case was built for. Kept explicitly rather than
+    // inferred from t_end, because --tend overrides t_end on the command line
+    // and would then silently select the wrong rainfall file.
+    std::string          storm = "6hr";
 };
 
 static Case make_plane()
@@ -298,7 +302,8 @@ static Case make_c6(double dx_target, Agg agg)
 // carved full-width for D8 delineation, which needs hydrologic connectivity;
 // used as 2D terrain it deletes the road as a control and can never overtop.
 // =============================================================================
-static Case make_nm141(double dx_target, Agg agg, const std::string& dem_override)
+static Case make_nm141(double dx_target, Agg agg, const std::string& dem_override,
+                       const std::string& storm)
 {
     Case c;
     c.name = "nm141";
@@ -317,8 +322,12 @@ static Case make_nm141(double dx_target, Agg agg, const std::string& dem_overrid
                 c.g.nx, c.g.ny, c.g.dx, dx_target);
 
     c.p.n_default    = 0.050;
-    c.p.t_end        = 9.0 * 3600.0;
-    c.p.t_out        = 1800.0;
+    // The 24-hr storm's HMS record runs 36 h, four times the 6-hr window, and it
+    // carries MORE volume (1,238 ac-ft against 916) despite a LOWER peak.
+    const bool s24 = (storm == "24hr");
+    c.storm = storm;
+    c.p.t_end        = (s24 ? 36.0 : 9.0) * 3600.0;
+    c.p.t_out        = s24 ? 7200.0 : 1800.0;
     c.p.report_every = 500;
     c.p.dt_max       = 5.0;
     c.h0.assign(c.g.ncell(), 0.0);
@@ -346,10 +355,11 @@ static Case make_nm141(double dx_target, Agg agg, const std::string& dem_overrid
     // 0.4 m below its surroundings -- a global-minimum search finds it by luck,
     // not by construction, and would silently move if the DEM changed.
     struct InflowSpec { Side side; double target; const char* csv; const char* name; };
+    std::printf("storm         %s 100-yr\n", s24 ? "24-hour" : "6-hour");
     const InflowSpec specs[3] = {
-        { Side::South, 711299.0, "/inflow_south_6hr_100yr.csv", "Reach_147, main wash (south)" },
-        { Side::West,  3960293.0, "/inflow_west_6hr_100yr.csv", "Reach_122, west tributary"    },
-        { Side::East,  3959922.0, "/inflow_east_6hr_100yr.csv", "Reach_99, east tributary"     },
+        { Side::South, 711299.0, s24 ? "/inflow_south_24hr_100yr.csv" : "/inflow_south_6hr_100yr.csv", "Reach_147, main wash (south)" },
+        { Side::West,  3960293.0, s24 ? "/inflow_west_24hr_100yr.csv"  : "/inflow_west_6hr_100yr.csv",  "Reach_122, west tributary"    },
+        { Side::East,  3959922.0, s24 ? "/inflow_east_24hr_100yr.csv"  : "/inflow_east_6hr_100yr.csv",  "Reach_99, east tributary"     },
     };
     const double BAND_M   = 3.0;
     const double SEARCH_M = 60.0;
@@ -428,9 +438,10 @@ static Case make_nm141(double dx_target, Agg agg, const std::string& dem_overrid
     double qtot = 0.0, vtot = 0.0;
     for (const auto& b : c.bcs)
         if (b.type == BcType::Inflow) { qtot += b.Q.peak(); vtot += b.Q.volume(); }
-    std::printf("              --- %zu inflows, peaks sum to %.0f cfs, volume %.0f ac-ft\n"
-                "              (HMS Outlet: 7,619 cfs, 915 ac-ft -- peaks are not concurrent)\n",
+    std::printf("              --- %zu inflows, peaks sum to %.0f cfs, volume %.0f ac-ft\n",
                 c.bcs.size() - 1, qtot / 0.028316847, vtot / 1233.4818);
+    std::printf("              (HMS Outlet: %s -- peaks are not concurrent)\n",
+                s24 ? "6,782 cfs, 1,238 ac-ft" : "7,619 cfs, 915 ac-ft");
     std::printf("outflow       normal depth, full north edge, S = %.3f\n", out.slope);
     return c;
 }
@@ -450,6 +461,7 @@ int main(int argc, char** argv)
     double dxt  = 3.0;                  // model cell size for the c6 case
     std::string aggs = "mean";
     std::string demov;
+    std::string storm = "6hr";
     for (int a = 1; a < argc; ++a) {
         if (std::strcmp(argv[a], "--out") == 0 && a + 1 < argc) outdir = argv[++a];
         else if (std::strcmp(argv[a], "--tend") == 0 && a + 1 < argc) tend = std::atof(argv[++a]);
@@ -462,6 +474,7 @@ int main(int argc, char** argv)
         // --dem runs one case against several terrains, which is what turns the
         // culvert-notch sensitivity study into a loop rather than a rebuild.
         else if (std::strcmp(argv[a], "--dem")  == 0 && a + 1 < argc) demov = argv[++a];
+        else if (std::strcmp(argv[a], "--storm")== 0 && a + 1 < argc) storm = argv[++a];
         else which = argv[a];
     }
 
@@ -471,7 +484,7 @@ int main(int argc, char** argv)
 #ifdef DWE_WITH_GDAL
         const Agg agg = (aggs == "min") ? Agg::Min
                       : (aggs == "max") ? Agg::Max : Agg::Mean;
-        c = make_nm141(dxt, agg, demov);
+        c = make_nm141(dxt, agg, demov, storm);
 #else
         std::printf("*** the nm141 case needs GDAL: rebuild with  qmake6 CONFIG+=with_gdal\n");
         return 2;
@@ -535,7 +548,9 @@ int main(int argc, char** argv)
     if (c.name == "c6" || c.name == "nm141") {
         const bool is141 = (c.name == "nm141");
         const std::string rcsv = is141
-            ? std::string(NM141_DIR) + "/rain_excess_local_6hr_100yr.csv"
+            ? std::string(NM141_DIR) + (c.storm == "24hr"
+                  ? "/rain_excess_local_24hr_100yr.csv"
+                  : "/rain_excess_local_6hr_100yr.csv")
             : std::string(C6_DIR)    + "/rain_excess_6hr_100yr.csv";
         solver.source = Series::from_csv(rcsv);
         if (solver.source.t.size() < 2) {
