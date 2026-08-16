@@ -46,9 +46,13 @@ ap.add_argument("--format", default="mp4", choices=["mp4", "avi"])
 ap.add_argument("--vectors", action="store_true", help="overlay velocity arrows")
 ap.add_argument("--dpi", type=int, default=130)
 ap.add_argument("--out", default=None)
+# The hillshade terrain and the caption were hard-coded to C6. They are flags now
+# so a second site does not need a forked copy of this script.
+ap.add_argument("--dem", default=None, help="terrain for the hillshade backdrop")
+ap.add_argument("--title", default="C6 Coyote Canyon", help="site name for the caption")
 A = ap.parse_args()
 
-DEM = "/home/arash/Dropbox/Chloeta/NHA/WS3_GIS/NM15-097/outputs_2D/cliped_dem.tif"
+DEM = A.dem or "/home/arash/Dropbox/Chloeta/NHA/WS3_GIS/NM15-097/outputs_2D/cliped_dem.tif"
 
 frames = sorted(f for f in os.listdir(A.run) if re.match(r".*_\d{4}\.vti$", f))
 if not frames:
@@ -111,11 +115,22 @@ else:
     label, conv, floor = label_map = ("%s (ft)" % A.field, FT, -1e30)
 
 norm = BoundaryNorm(lv, cm.N)
-out = A.out or os.path.join(A.run, "c6_%s.%s" % (A.field, A.format))
-codec = ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20"] if A.format == "mp4" \
-        else ["-c:v", "mpeg4", "-q:v", "4"]
+_slug = re.sub(r"[^a-z0-9]+", "_", A.title.lower()).strip("_") or "run"
+out = A.out or os.path.join(A.run, "%s_%s.%s" % (_slug, A.field, A.format))
+# libx264 with yuv420p requires EVEN pixel dimensions. The figure size is derived
+# from the domain aspect, so it lands on an odd height often enough that ffmpeg
+# dies with a broken pipe; pad up rather than constrain the figure.
+_pad = ["-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2"]
+codec = (["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20"] + _pad) \
+        if A.format == "mp4" else ["-c:v", "mpeg4", "-q:v", "4"] + _pad
 
-fig, ax = plt.subplots(figsize=(15, 7.6), dpi=A.dpi)
+# Size the frame to the DOMAIN aspect. A fixed landscape figure letterboxes a
+# portrait domain (NM15-141 is 1,098 x 1,633 m) into a thin strip with most of
+# the frame empty. Height is capped so the encoder gets a sane resolution.
+_ar = (ext[3] - ext[2]) / (ext[1] - ext[0])
+_w = 15.0 if _ar < 1.0 else max(8.0, 15.0 / _ar)
+_h = min(11.5, max(6.0, _w * _ar)) + 1.0
+fig, ax = plt.subplots(figsize=(_w, _h), dpi=A.dpi)
 proc = None
 print("run %s | %d frames | field %s | %.0f s per frame | peak %.3f (SI)"
       % (A.run, len(frames), A.field, A.dt_frame, peak))
@@ -143,21 +158,30 @@ for i, f in enumerate(frames):
         cb.set_label(label, fontsize=10)
 
     tt = i * A.dt_frame
-    ax.set_title("C6 Coyote Canyon — 2D-DWE, %.0f m grid, 100-yr 6-hr transient "
-                 "hydrograph\nt = %2d h %02d min   (frame %d of %d)"
-                 % (A.dx, int(tt // 3600), int((tt % 3600) // 60), i + 1, len(frames)),
+    ax.set_title("%s — 2D-DWE, %.0f m grid, 100-yr 6-hr event\n"
+                 "t = %2d h %02d min   (frame %d of %d)"
+                 % (A.title, A.dx, int(tt // 3600), int((tt % 3600) // 60),
+                    i + 1, len(frames)),
                  fontsize=12)
     ax.set_xlabel("UTM Zone 12N Easting (m)")
     ax.set_ylabel("Northing (m)")
     ax.set_xlim(ext[0], ext[1]); ax.set_ylim(ext[2], ext[3]); ax.set_aspect("equal")
 
-    bl = ext[0] + 300
-    ax.plot([bl, bl + 1609.34], [ext[2] + 140, ext[2] + 140], c="k", lw=4,
-            zorder=9, solid_capstyle="butt")
-    ax.text(bl + 804, ext[2] + 195, "1 mile", ha="center", fontsize=9, zorder=9)
-    ax.annotate("", xy=(ext[1] - 240, ext[3] - 180), xytext=(ext[1] - 240, ext[3] - 480),
+    # Scale bar sized to the domain -- a 1-mile bar does not fit a 1,098 m wide
+    # frame, and a bar wider than the map is worse than none.
+    W = ext[1] - ext[0]; H = ext[3] - ext[2]
+    for blen, blab in ((1609.34, "1 mile"), (804.67, "0.5 mile"),
+                       (304.8, "1,000 ft"), (152.4, "500 ft")):
+        if blen < 0.32 * W:
+            break
+    bx = ext[0] + 0.05 * W
+    by = ext[2] + 0.035 * H
+    ax.plot([bx, bx + blen], [by, by], c="k", lw=4, zorder=9, solid_capstyle="butt")
+    ax.text(bx + blen / 2, by + 0.012 * H, blab, ha="center", fontsize=9, zorder=9)
+    nx_ = ext[1] - 0.07 * W
+    ax.annotate("", xy=(nx_, ext[3] - 0.035 * H), xytext=(nx_, ext[3] - 0.11 * H),
                 arrowprops=dict(arrowstyle="-|>", lw=2, color="k"), zorder=9)
-    ax.text(ext[1] - 240, ext[3] - 140, "N", ha="center", fontsize=11,
+    ax.text(nx_, ext[3] - 0.022 * H, "N", ha="center", fontsize=11,
             weight="bold", zorder=9)
     fig.tight_layout()
 
