@@ -32,8 +32,10 @@ gdal.UseExceptions(); ogr.UseExceptions()
 
 RUN = sys.argv[1] if len(sys.argv) > 1 else "out_c6_3m"
 DXM = float(sys.argv[2]) if len(sys.argv) > 2 else 3.0
+# The subdivision and structure layers are NHA-wide clips held in the C6 folder;
+# they cover both sites. Only the TERRAIN is site-specific, so it is an argument.
 GIS = "/home/arash/Dropbox/Chloeta/NHA/WS3_GIS/NM15-097"
-DEM = GIS + "/outputs_2D/cliped_dem.tif"
+DEM = sys.argv[3] if len(sys.argv) > 3 else GIS + "/outputs_2D/cliped_dem.tif"
 FT  = 3.280839895
 BANDS = [(1.0, "#2f8fd0", "Depth > 1 ft — nuisance and access"),
          (3.0, "#1c4f9c", "Depth > 3 ft — structural / life-safety"),

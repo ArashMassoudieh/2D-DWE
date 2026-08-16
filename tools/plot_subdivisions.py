@@ -13,6 +13,8 @@ flooded building.
 import sys
 RUN = sys.argv[1] if len(sys.argv) > 1 else "out_c6_1m"
 DXM = float(sys.argv[2]) if len(sys.argv) > 2 else 1.0
+TITLE = sys.argv[4] if len(sys.argv) > 4 else (
+    "NM15-141Local" if "nm141" in RUN else "C6 Coyote Canyon")
 import numpy as np, matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -27,7 +29,9 @@ a=b.ReadAsArray().astype(float); nd=b.GetNoDataValue()
 a=np.where((a==nd)|~np.isfinite(a),0.0,a)*FT
 gt=r.GetGeoTransform(); ny,nx=a.shape
 ext=[gt[0],gt[0]+nx*gt[1],gt[3]-ny*gt[1],gt[3]]
-t=gdal.Warp("","/home/arash/Dropbox/Chloeta/NHA/WS3_GIS/NM15-097/outputs_2D/cliped_dem.tif",
+DEMPATH = sys.argv[3] if len(sys.argv) > 3 else \
+    "/home/arash/Dropbox/Chloeta/NHA/WS3_GIS/NM15-097/outputs_2D/cliped_dem.tif"
+t=gdal.Warp("",DEMPATH,
             format="MEM",width=nx,height=ny,resampleAlg="average")
 zb=t.GetRasterBand(1).ReadAsArray().astype(float)
 
@@ -62,6 +66,7 @@ lv=[0.5,1,2,3,4,6]
 cm=ListedColormap(["#bfe3f7","#7fc4e8","#3d94cf","#1c5fa8","#0d2f6e"])
 im=ax.imshow(np.ma.masked_less(a,0.5),cmap=cm,norm=BoundaryNorm(lv,cm.N),extent=ext,alpha=.85,zorder=2)
 
+_LBL=[]
 for pn,g in polys:
     for k in range(g.GetGeometryCount()):
         gg=g.GetGeometryRef(k)
@@ -70,23 +75,44 @@ for pn,g in polys:
         if p.size:
             ax.plot(p[:,0],p[:,1],c="#111",lw=2.4,zorder=6)
             ax.plot(p[:,0],p[:,1],c="#ffd400",lw=1.2,zorder=6)
+    # Labels were plain text sitting above each envelope with nothing tying them
+    # to their polygon; where parcels are adjacent -- which is the normal case --
+    # they land in a row over the wrong ones. Anchor each to its polygon's
+    # representative point and stagger the callouts to the side with a leader.
     e=g.GetEnvelope()
-    ax.text((e[0]+e[1])/2,e[3]+40,str(pn),ha="center",fontsize=11,weight="bold",
-            zorder=9,bbox=dict(fc="#ffd400",ec="k",lw=.8,pad=2.2))
+    try:
+        rp=g.PointOnSurface(); ax_, ay_ = rp.GetX(), rp.GetY()
+    except Exception:
+        ax_, ay_ = (e[0]+e[1])/2, (e[2]+e[3])/2
+    # Put each label at ITS OWN parcel's height in the left margin, so leaders run
+    # roughly horizontally and do not cross one another. Stacking them all in one
+    # corner made three leaders sweep across the whole map and intersect.
+    lx = bx0 + 0.11*(bx1-bx0)
+    ly = ay_
+    span = by1 - by0
+    for prev in _LBL:
+        if abs(ly - prev) < 0.062*span:
+            ly = prev - 0.062*span
+    _LBL.append(ly)
+    ax.annotate(str(pn), xy=(ax_, ay_), xytext=(lx, ly),
+                ha="center", va="center", fontsize=10.5, weight="bold", zorder=11,
+                arrowprops=dict(arrowstyle="-|>", lw=1.3, color="k",
+                                shrinkA=0, shrinkB=2),
+                bbox=dict(fc="#ffd400", ec="k", lw=.8, pad=2.2))
 
 dry=sd<=0.5
-ax.scatter(sx[dry],sy[dry],s=26,c="#ffffff",ec="#333",lw=.7,zorder=7,label="Structure, dry (81)")
+ax.scatter(sx[dry],sy[dry],s=26,c="#ffffff",ec="#333",lw=.7,zorder=7,label="Structure, below 0.5 ft (%d)" % int(dry.sum()))
 ax.scatter(sx[~dry],sy[~dry],s=90,c="#e8112d",ec="k",lw=1.1,marker="s",zorder=8,
-           label="Structure, >0.5 ft (3)")
+           label="Structure, above 0.5 ft (%d)" % int((~dry).sum()))
 cb=fig.colorbar(im,ax=ax,shrink=.85,pad=.012,ticks=lv)
 cb.set_label("Maximum depth over the 9-hour event (ft)",fontsize=10)
 ax.set_xlim(bx0,bx1); ax.set_ylim(by0,by1); ax.set_aspect("equal")
-ax.set_title("C6 Coyote Canyon — flooding WITHIN the subdivisions\n"
+ax.set_title(TITLE + " — flooding WITHIN the subdivisions\n"
              "2D-DWE, %.0f m grid, 100-yr 6-hr transient hydrograph — PRELIMINARY" % DXM,fontsize=12.5)
 ax.set_xlabel("UTM Zone 12N Easting (m)"); ax.set_ylabel("Northing (m)")
 h,l=ax.get_legend_handles_labels()
 h.append(Patch(fc="none",ec="#ffd400",lw=2,label="NHA subdivision boundary"))
-ax.legend(handles=h,loc="upper left",fontsize=9.5,framealpha=.93)
+ax.legend(handles=h,loc="lower left",fontsize=9.5,framealpha=.93)
 bl=bx0+90
 ax.plot([bl,bl+304.8],[by0+70,by0+70],c="k",lw=4,zorder=9,solid_capstyle="butt")
 ax.text(bl+152,by0+95,"1,000 ft",ha="center",fontsize=9,zorder=9)
