@@ -14,7 +14,7 @@ import sys
 RUN = sys.argv[1] if len(sys.argv) > 1 else "out_c6_1m"
 DXM = float(sys.argv[2]) if len(sys.argv) > 2 else 1.0
 TITLE = sys.argv[4] if len(sys.argv) > 4 else (
-    "NM15-141Local" if "nm141" in RUN else "C6 Coyote Canyon")
+    "C10" if "nm141" in RUN else "C6 Coyote Canyon")
 import numpy as np, matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt

@@ -174,7 +174,7 @@ cb = fig.colorbar(im, ax=ax, shrink=.62, pad=.02, aspect=28, ticks=lv)
 cb.set_label("Maximum depth over the event (ft)", fontsize=10)
 cb.ax.tick_params(labelsize=9)
 ax.set_xlim(ext[0], ext[1]); ax.set_ylim(ext[2], ext[3]); ax.set_aspect("equal")
-fig.suptitle("NM15-141Local -- maximum simulated depth, 100-yr 6-hr event\n"
+fig.suptitle("C10 -- maximum simulated depth, 100-yr 6-hr event\n"
              "2D-DWE, %.0f m grid, all three inflows + local runoff -- PRELIMINARY" % DXM,
              fontsize=13.5, y=0.965)
 ax.set_xlabel("UTM Zone 12N Easting (m)"); ax.set_ylabel("Northing (m)")
@@ -195,7 +195,7 @@ ax.text(ext[1] - 70, ext[3] - 40, "N", ha="center", fontsize=11, weight="bold", 
 # -------------------------------------------------------------- summary panel
 axs = fig.add_subplot(gs[0, 1]); axs.axis("off")
 A_ac = DXM * DXM / 4046.8564224
-lines = [("NM15-141Local -- 2D results", 13, "bold"), ("", 6, "normal")]
+lines = [("C10 -- 2D results", 13, "bold"), ("", 6, "normal")]
 for thr in (1.0, 3.0, 6.0):
     lines.append(("Area with max depth > %.0f ft:   %.1f acres"
                   % (thr, (dep * FT > thr).sum() * A_ac), 11, "normal"))
@@ -228,7 +228,7 @@ print("wrote", out_map)
 # ------------------------------------------------------------------ profiles -
 figp = plt.figure(figsize=(15, 3.5 * nprof + 0.8), dpi=150)
 gsp = figp.add_gridspec(nprof, 1, hspace=0.46)
-figp.suptitle("NM15-141Local -- ground surface and maximum water-surface elevation\n"
+figp.suptitle("C10 -- ground surface and maximum water-surface elevation\n"
               "2D-DWE, %.0f m grid, 100-yr 6-hr event, all three inflows + local runoff"
               " -- PRELIMINARY" % DXM, fontsize=13, y=0.995)
 

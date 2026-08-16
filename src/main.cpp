@@ -283,7 +283,7 @@ static Case make_c6(double dx_target, Agg agg)
 // -----------------------------------------------------------------------------
 
 // =============================================================================
-// NM15-141Local -- second Coyote Canyon site, with a culverted road crossing.
+// C10 -- second Coyote Canyon cluster, with a culverted road crossing.
 //
 // GEOMETRY: the wash runs SOUTH to NORTH, entering the south edge near easting
 // 711,290 at 1876.27 m and leaving the north edge near 711,285 at 1859.19 m --
