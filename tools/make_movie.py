@@ -41,7 +41,8 @@ ap.add_argument("run")
 ap.add_argument("dx", type=float)
 ap.add_argument("--field", default="depth", choices=["depth", "speed", "head", "total_head"])
 ap.add_argument("--fps", type=float, default=3.0)
-ap.add_argument("--dt-frame", type=float, default=1800.0, help="seconds between frames")
+ap.add_argument("--dt-frame", type=float, default=None,
+                help="seconds between frames; default derives it from the run log")
 ap.add_argument("--format", default="mp4", choices=["mp4", "avi"])
 ap.add_argument("--vectors", action="store_true", help="overlay velocity arrows")
 ap.add_argument("--dpi", type=int, default=130)
@@ -50,6 +51,11 @@ ap.add_argument("--out", default=None)
 # so a second site does not need a forked copy of this script.
 ap.add_argument("--dem", default=None, help="terrain for the hillshade backdrop")
 ap.add_argument("--title", default="C6 Coyote Canyon", help="site name for the caption")
+# The storm was hardcoded into the caption as "100-yr 6-hr event", which is a
+# silent lie on a 24-hr run -- the clock runs to 36 h under a caption that says
+# 6-hr. It is a flag now; the default keeps every existing call unchanged.
+ap.add_argument("--storm", default="100-yr 6-hr event",
+                help="storm description for the caption")
 A = ap.parse_args()
 
 DEM = A.dem or "/home/arash/Dropbox/Chloeta/NHA/WS3_GIS/NM15-097/outputs_2D/cliped_dem.tif"
@@ -132,6 +138,34 @@ _w = 15.0 if _ar < 1.0 else max(8.0, 15.0 / _ar)
 _h = min(11.5, max(6.0, _w * _ar)) + 1.0
 fig, ax = plt.subplots(figsize=(_w, _h), dpi=A.dpi)
 proc = None
+# ---------------------------------------------------------------------------
+# Frame interval.  The .vti container carries no time value and the solver log
+# records no --tout, so the interval has to come from somewhere.  Deriving it as
+# duration / nframes is exact whenever tout divides tend, which is every run we
+# make: frames land at 0, tout, ... (n-1)*tout with n*tout = tend.
+#
+# This used to default to a hardcoded 1800 s, which silently halved every clock
+# on a run written at --tout 3600 -- the animation showed the flood peaking at
+# 2 h instead of 4 h.  A wrong timestamp on an animation shown to a client is
+# worse than no timestamp, so the default is now derived and the fallback warns.
+if A.dt_frame is None:
+    _dt = None
+    try:
+        _log = open(A.run.rstrip("/") + ".log", errors="ignore").read()
+        _m = re.search(r"duration\s+([\d.]+)\s*s", _log)
+        if _m and len(frames):
+            _dt = float(_m.group(1)) / len(frames)
+    except OSError:
+        pass
+    if _dt is None:
+        _dt = 1800.0
+        print("WARNING: could not read %s.log -- frame interval assumed %.0f s.\n"
+              "         Pass --dt-frame explicitly if that is wrong." % (A.run.rstrip("/"), _dt))
+    else:
+        print("frame interval %.0f s, derived from the run log (duration / %d frames)"
+              % (_dt, len(frames)))
+    A.dt_frame = _dt
+
 print("run %s | %d frames | field %s | %.0f s per frame | peak %.3f (SI)"
       % (A.run, len(frames), A.field, A.dt_frame, peak))
 
@@ -158,9 +192,9 @@ for i, f in enumerate(frames):
         cb.set_label(label, fontsize=10)
 
     tt = i * A.dt_frame
-    ax.set_title("%s — 2D-DWE, %.0f m grid, 100-yr 6-hr event\n"
+    ax.set_title("%s — 2D-DWE, %.0f m grid, %s\n"
                  "t = %2d h %02d min   (frame %d of %d)"
-                 % (A.title, A.dx, int(tt // 3600), int((tt % 3600) // 60),
+                 % (A.title, A.dx, A.storm, int(tt // 3600), int((tt % 3600) // 60),
                     i + 1, len(frames)),
                  fontsize=12)
     ax.set_xlabel("UTM Zone 12N Easting (m)")

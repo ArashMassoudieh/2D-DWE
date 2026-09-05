@@ -62,6 +62,16 @@ bool load_manning(const std::string& landcover_path,
                   double n_default,
                   std::string* err = nullptr);
 
+// Sample a CONTINUOUS Manning-n raster (float, n values directly -- not land-cover
+// codes) BY COORDINATE onto an existing grid. Used when the roughness field is
+// built alongside a carved terrain and already carries the channel lining, which
+// no land-cover product can supply.
+bool load_manning_direct(const std::string& n_path,
+                         const Grid& g,
+                         std::vector<double>& n,
+                         double n_default,
+                         std::string* err = nullptr);
+
 // Write a cell field as a GeoTIFF on the model grid.
 bool write_gtiff(const std::string& path,
                  const Grid& g,

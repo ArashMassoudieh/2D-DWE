@@ -69,6 +69,11 @@ private:
     void update_depths(double dt, MassBalance& mb);
     void dry_cells(MassBalance& mb);
 
+    // Previous-step flux snapshots, used ONLY when Params::theta < 1 (the
+    // de Almeida momentum smoothing). Left empty at theta = 1 so the default
+    // path allocates nothing.
+    std::vector<double>   qx_old, qy_old;
+
     Fields&               F;
     const Params&         P;
     std::vector<Boundary> BC;

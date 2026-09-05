@@ -6,10 +6,38 @@ from osgeo import gdal, ogr
 gdal.UseExceptions(); ogr.UseExceptions()
 
 import sys
+import re
 OUT=sys.argv[1] if len(sys.argv)>1 else "/home/arash/Projects/2D-DWE/out_c6_10m_tr"
 DXM=float(sys.argv[2]) if len(sys.argv)>2 else 10.0
 SHP="/home/arash/Dropbox/Chloeta/NHA/WS3_GIS/NM15-097/outputs"
-DEM="/home/arash/Dropbox/Chloeta/NHA/WS3_GIS/NM15-097/outputs_2D/cliped_dem.tif"
+DEM=sys.argv[3] if len(sys.argv)>3 else \
+    "/home/arash/Dropbox/Chloeta/NHA/WS3_GIS/NM15-097/outputs_2D/cliped_dem.tif"
+# The barrier profile is about the controlling DIVIDE, which sits far upstream
+# of the boundary berm and is unaffected by it. On a berm scenario the lower
+# panel adds nothing, so it can be dropped:  ... <dem> noprofile
+PROFILE = not (len(sys.argv)>4 and sys.argv[4].lower() in ("noprofile","no-profile","0","off"))
+
+# --- title facts, READ FROM THE RUN LOG rather than hard-coded ----------------
+# The peak and the run length differ between the 6-hour and 24-hour cases, and a
+# hard-coded pair silently mislabels whichever case it was not written for.
+def _run_facts(run_dir):
+    peak_cfs, hours, storm = None, None, None
+    try:
+        txt = open(run_dir.rstrip("/") + ".log", errors="ignore").read()
+        m = re.search(r"peak\s+[\d.]+\s+m3/s\s+\(([\d]+)\s*cfs\)", txt)
+        if m:
+            peak_cfs = int(m.group(1))
+        m = re.search(r"duration\s+([\d.]+)\s*s", txt)
+        if m:
+            hours = float(m.group(1)) / 3600.0
+        m = re.search(r"storm\s+(\S+)\s+100-yr", txt)
+        if m:
+            storm = m.group(1)
+    except OSError:
+        pass
+    return peak_cfs, hours, storm
+
+_PEAK, _HRS, _STORM = _run_facts(OUT)
 FT=3.280839895
 
 d=gdal.Open(f"{OUT}/depth_max.tif"); bnd=d.GetRasterBand(1)
@@ -39,7 +67,8 @@ _fs=[f for f in dl]
 dpts=np.array([f.GetGeometryRef().GetPoint()[:2] for f in _fs])
 
 fig=plt.figure(figsize=(16,11.5),dpi=140)
-gs=fig.add_gridspec(2,1,height_ratios=[2.05,1],hspace=.16)
+gs=fig.add_gridspec(2,1,height_ratios=[2.05,1],hspace=.16) if PROFILE \
+   else fig.add_gridspec(1,1)
 
 ax=fig.add_subplot(gs[0])
 ls=LightSource(azdeg=315,altdeg=45)
@@ -54,8 +83,10 @@ ax.scatter(dpts[:,0],dpts[:,1],s=130,c="#e8112d",marker="o",ec="k",lw=1.2,zorder
 ov=hc*FT>0.5
 ax.scatter(bx[ov],by[ov],s=13,c="#e8112d",zorder=7,label="Barrier overtopped")
 cb=fig.colorbar(im,ax=ax,shrink=.9,pad=.012,ticks=lv); cb.set_label("Maximum depth (ft)",fontsize=10)
-ax.set_title("C6 Coyote Canyon — 2D-DWE local-inertial solver, 100-yr peak 32,628 cfs\n"
-             "%.0f m grid, 9-hour transient run to full recession — PRELIMINARY" % DXM,fontsize=12)
+ax.set_title("C6 Coyote Canyon — 2D-DWE local-inertial solver, 100-yr %s peak %s\n"
+             "%.0f m grid, %s transient run to full recession — PRELIMINARY"
+             % (_STORM or "", ("%s cfs" % format(_PEAK, ",")) if _PEAK else "(peak unread)",
+                DXM, ("%.0f-hour" % _HRS) if _HRS else "(duration unread)"),fontsize=12)
 ax.set_xlabel("UTM Zone 12N Easting (m)");ax.set_ylabel("Northing (m)")
 ax.legend(loc="lower left",fontsize=9,framealpha=.92)
 sx,sy=ext[0]+300,ext[2]+180
@@ -66,21 +97,25 @@ ax.annotate("",xy=(ext[1]-250,ext[3]-200),xytext=(ext[1]-250,ext[3]-520),
 ax.text(ext[1]-250,ext[3]-150,"N",ha="center",fontsize=11,weight="bold",zorder=8)
 ax.set_aspect("equal")
 
-ax2=fig.add_subplot(gs[1])
-sf=s*FT
-ax2.fill_between(sf,zc*FT,zc.min()*FT-8,color="#c8b89a",zorder=2,label=("Barrier crest (native 1 m terrain, no aggregation)" if DXM <= 1.001
-                          else "Barrier crest (%.0f m model grid, MEAN-aggregated)" % DXM))
-ax2.plot(sf,zc*FT,c="#6b5b3e",lw=1.6,zorder=3)
-ax2.plot(sf,wc*FT,c="#1a4f95",lw=2.0,zorder=4,label="Peak water surface")
-ax2.fill_between(sf,zc*FT,wc*FT,where=hc*FT>0.5,color="#e8112d",alpha=.45,zorder=3,
-                 label="Overtopping")
-ax2.set_xlim(0,sf[-1]); ax2.set_ylim(zc.min()*FT-8,max(wc.max(),zc.max())*FT+6)
-ax2.set_xlabel("Distance along natural barrier, south → north (ft)")
-ax2.set_ylabel("Elevation (ft NAVD88)")
-ax2.grid(alpha=.3,zorder=1); ax2.legend(fontsize=9,loc="upper left")
 pc=100*ov.sum()/ov.size
-ax2.set_title(f"Barrier profile — overtopped along {pc:.0f}% of its {sf[-1]:,.0f} ft length; "
-              f"max head over crest {np.nanmax(hc)*FT:.1f} ft",fontsize=11)
+
+if PROFILE:
+    ax2=fig.add_subplot(gs[1])
+    sf=s*FT
+    ax2.fill_between(sf,zc*FT,zc.min()*FT-8,color="#c8b89a",zorder=2,label=("Barrier crest (native 1 m terrain, no aggregation)" if DXM <= 1.001
+                              else "Barrier crest (%.0f m model grid, MEAN-aggregated)" % DXM))
+    ax2.plot(sf,zc*FT,c="#6b5b3e",lw=1.6,zorder=3)
+    ax2.plot(sf,wc*FT,c="#1a4f95",lw=2.0,zorder=4,label="Peak water surface")
+    ax2.fill_between(sf,zc*FT,wc*FT,where=hc*FT>0.5,color="#e8112d",alpha=.45,zorder=3,
+                     label="Overtopping")
+    ax2.set_xlim(0,sf[-1]); ax2.set_ylim(zc.min()*FT-8,max(wc.max(),zc.max())*FT+6)
+    ax2.set_xlabel("Distance along natural barrier, south → north (ft)")
+    ax2.set_ylabel("Elevation (ft NAVD88)")
+    ax2.grid(alpha=.3,zorder=1); ax2.legend(fontsize=9,loc="upper left")
+    ax2.set_title(f"Barrier profile — overtopped along {pc:.0f}% of its {sf[-1]:,.0f} ft length; "
+                  f"max head over crest {np.nanmax(hc)*FT:.1f} ft",fontsize=11)
+
 plt.savefig(f"{OUT}/c6_2d_preliminary.png",bbox_inches="tight");print("wrote map")
+sf=s*FT
 print(f"barrier: {sf[-1]:,.0f} ft long, overtopped {pc:.0f}%, max depth over crest {np.nanmax(hc)*FT:.2f} ft")
 print(f"crest elev {zc.min()*FT:.1f}-{zc.max()*FT:.1f} ft, peak WSE {wc.min()*FT:.1f}-{wc.max()*FT:.1f} ft")

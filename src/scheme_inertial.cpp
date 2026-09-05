@@ -60,6 +60,16 @@ void SchemeInertial::update_faces(double dt)
     const double gdt = G * dt;
     double smax = 0.0;
 
+    // de Almeida momentum smoothing. The weighted q_hat must be built from the
+    // OLD flux field: the loops below write F.qx/F.qy in place, so a neighbour
+    // read after its own update would mix time levels and quietly break the
+    // scheme. Snapshot only when it is actually in use -- at theta = 1 this
+    // allocates nothing and the code path is identical to Bates (2010).
+    const bool   smooth = (P.theta < 1.0);
+    const double th     = P.theta;
+    const double thn    = 0.5 * (1.0 - P.theta);
+    if (smooth) { qx_old = F.qx; qy_old = F.qy; }
+
     // ---- west-east faces -------------------------------------------------
 #pragma omp parallel for schedule(static) reduction(max:smax)
     for (int j = 0; j < g.ny; ++j) {
@@ -75,7 +85,14 @@ void SchemeInertial::update_faces(double dt)
             const double nf   = 0.5 * (F.n[L] + F.n[R]);
             const double hfr  = std::max(hf, P.h_fric_min);
 
-            const double q0   = F.qx[f];
+            // q_hat: theta*q_i + (1-theta)/2*(q_{i-1} + q_{i+1}) along x.
+            // i runs 1..nx-1 here, so fx(i-1,j) and fx(i+1,j) are both valid
+            // face indices (0..nx); the end ones carry the boundary fluxes,
+            // which is what de Almeida intends.
+            const double q0   = smooth
+                ? th * qx_old[f] + thn * (qx_old[g.fx(i - 1, j)]
+                                        + qx_old[g.fx(i + 1, j)])
+                : F.qx[f];
             const double num  = q0 - gdt * hf * dHdx;
             const double den  = 1.0 + gdt * nf * nf * std::fabs(q0)
                                       / std::pow(hfr, 7.0 / 3.0);
@@ -100,7 +117,10 @@ void SchemeInertial::update_faces(double dt)
             const double nf   = 0.5 * (F.n[L] + F.n[R]);
             const double hfr  = std::max(hf, P.h_fric_min);
 
-            const double q0   = F.qy[f];
+            const double q0   = smooth
+                ? th * qy_old[f] + thn * (qy_old[g.fy(i, j - 1)]
+                                        + qy_old[g.fy(i, j + 1)])
+                : F.qy[f];
             const double num  = q0 - gdt * hf * dHdy;
             const double den  = 1.0 + gdt * nf * nf * std::fabs(q0)
                                       / std::pow(hfr, 7.0 / 3.0);

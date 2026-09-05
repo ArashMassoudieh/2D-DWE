@@ -144,6 +144,59 @@ bool load_terrain(const std::string& path,
 }
 
 // -----------------------------------------------------------------------------
+bool load_manning_direct(const std::string& n_path,
+                         const Grid& g,
+                         std::vector<double>& n,
+                         double n_default,
+                         std::string* err)
+{
+    n.assign(g.ncell(), n_default);
+
+    GDALDataset* ds = static_cast<GDALDataset*>(GDALOpen(n_path.c_str(), GA_ReadOnly));
+    if (!ds) { if (err) *err = "cannot open " + n_path; return false; }
+    double gt[6];
+    if (ds->GetGeoTransform(gt) != CE_None) {
+        if (err) *err = "no geotransform in " + n_path;
+        GDALClose(ds); return false;
+    }
+    const int lnx = ds->GetRasterXSize(), lny = ds->GetRasterYSize();
+    std::vector<float> nn(std::size_t(lnx) * lny);
+    if (ds->GetRasterBand(1)->RasterIO(GF_Read, 0, 0, lnx, lny,
+                                       nn.data(), lnx, lny, GDT_Float32, 0, 0) != CE_None) {
+        if (err) *err = "RasterIO failed on " + n_path;
+        GDALClose(ds); return false;
+    }
+    int has_nd = 0;
+    const double nd = ds->GetRasterBand(1)->GetNoDataValue(&has_nd);
+    GDALClose(ds);
+
+    const double inv_dx = 1.0 / gt[1];
+    const double inv_dy = 1.0 / gt[5];
+
+    std::size_t outside = 0, nodata = 0, bad = 0;
+    for (int j = 0; j < g.ny; ++j) {
+        const double y = g.yc(j);
+        for (int i = 0; i < g.nx; ++i) {
+            const double x = g.xc(i);
+            const int ci = int((x - gt[0]) * inv_dx);
+            const int cj = int((y - gt[3]) * inv_dy);
+            const std::size_t k = g.k(i, j);
+            if (ci < 0 || ci >= lnx || cj < 0 || cj >= lny) { ++outside; continue; }
+            const double v = double(nn[std::size_t(cj) * lnx + ci]);
+            if (has_nd && v == nd) { ++nodata; continue; }
+            // A roughness raster that is silently wrong is worse than one that
+            // fails loudly: reject anything outside a physically sane band
+            // rather than routing a flood over n = 0 or n = 5.
+            if (!(v > 0.005 && v < 0.5)) { ++bad; continue; }
+            n[k] = v;
+        }
+    }
+    if (outside || nodata || bad)
+        std::printf("  roughness: %zu cells outside the raster, %zu nodata, %zu out of range"
+                    " -- left at n = %.3f\n", outside, nodata, bad, n_default);
+    return true;
+}
+
 bool load_manning(const std::string& landcover_path,
                   const std::string& csv_path,
                   const Grid& g,

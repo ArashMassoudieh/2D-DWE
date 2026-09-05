@@ -112,7 +112,8 @@ ax.set_title(TITLE + " — flooding WITHIN the subdivisions\n"
 ax.set_xlabel("UTM Zone 12N Easting (m)"); ax.set_ylabel("Northing (m)")
 h,l=ax.get_legend_handles_labels()
 h.append(Patch(fc="none",ec="#ffd400",lw=2,label="NHA subdivision boundary"))
-ax.legend(handles=h,loc="lower left",fontsize=9.5,framealpha=.93)
+# lower left holds the scale bar; the legend would print straight through it
+ax.legend(handles=h,loc="lower right",fontsize=9.5,framealpha=.93)
 bl=bx0+90
 ax.plot([bl,bl+304.8],[by0+70,by0+70],c="k",lw=4,zorder=9,solid_capstyle="butt")
 ax.text(bl+152,by0+95,"1,000 ft",ha="center",fontsize=9,zorder=9)
