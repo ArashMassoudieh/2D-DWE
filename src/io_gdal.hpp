@@ -73,6 +73,15 @@ bool load_manning_direct(const std::string& n_path,
                          std::string* err = nullptr);
 
 // Write a cell field as a GeoTIFF on the model grid.
+// Any single-band float raster sampled onto the grid at cell centres (nearest),
+// with no range check; cells outside it or nodata get `fill`. Used for the
+// initial depth of a hot start.
+bool load_field(const std::string& path,
+                const Grid& g,
+                std::vector<double>& a,
+                double fill,
+                std::string* err = nullptr);
+
 bool write_gtiff(const std::string& path,
                  const Grid& g,
                  const std::vector<double>& a,

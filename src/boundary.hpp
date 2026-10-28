@@ -103,6 +103,15 @@ struct Boundary
     Series  Q;              // m^3/s, total across the boundary (Inflow)
     double  slope = 0.001;  // bed slope for NormalDepth
 
+    // Inflow only: distribute Q across the run in proportion to the local
+    // conveyance, max(H_edge - z, 0)^(5/3), with H_edge the highest water surface
+    // on the run, instead of uniformly. A uniform split forces the whole flood
+    // through every cell of the run alike -- with a run cut to the low-flow
+    // channel (Rock Creek: 20 m) the overbank flow is pushed through the channel
+    // and mounds up a metre at the edge; with a run spanning the valley it is
+    // poured onto dry terraces. Weighted, the inflow follows the cross-section.
+    bool    conveyance = false;
+
     std::string name = "bc";
 
     void resolve(const Grid& g)
