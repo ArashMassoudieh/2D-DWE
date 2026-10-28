@@ -1,0 +1,8 @@
+# EA Test 4 inflow (Neelz and Pender 2013, Figure A.8, read from the figure)
+t_s,Q_cms
+0,0
+300,0
+3600,20
+14400,20
+18000,0
+36000,0

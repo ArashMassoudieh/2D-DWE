@@ -1,0 +1,23 @@
+# EA 2D benchmark Test 4 (Neelz and Pender 2013): flat 1000 x 2000 m floodplain, n 0.05, 5 m grid
+# run from this folder after python3 make_case.py (relative paths)
+name      ea_test4
+dem       dem.tif
+manning   manning.tif
+crs       EPSG:27700
+t_end     18000
+t_out     1800
+t_gauge   20
+cfl       0.7
+theta     0.9
+dt_max    5
+n_default 0.05
+flood_h   0.10
+frames    depth speed
+vti       0
+inflow    west 198 202 bc_test4.csv
+gauge     P1 10 199
+gauge     P2 20 199
+gauge     P3 40 199
+gauge     P4 60 199
+gauge     P5 80 199
+gauge     P6 60 140

@@ -30,6 +30,7 @@ in ParaView.
 | closed depression | nothing over the rim | **0.00000 m** |
 | closed depression | drains to the notch | 8.43 → 8.14 → **8.04 m** at 2/10/40 ks |
 | both | mass closure | **< 1e-14** |
+| EA 2D benchmark Test 4 (Neelz and Pender 2013) | depths and arrival times at points 1, 3, 5, 6 within the 17 packages' range | **pass** (`cases/ea_test4/RESULT.md`) |
 
 ## The problem in one paragraph
 
