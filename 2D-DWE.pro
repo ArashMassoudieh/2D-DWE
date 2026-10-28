@@ -44,7 +44,8 @@ HEADERS += \
     src/boundary.hpp \
     src/massbalance.hpp \
     src/scheme_inertial.hpp \
-    src/vti_writer.hpp
+    src/vti_writer.hpp \
+    src/case_config.hpp
 
 SOURCES += \
     src/scheme_inertial.cpp \

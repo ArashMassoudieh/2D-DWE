@@ -151,6 +151,42 @@ void SchemeInertial::apply_boundaries(double t, double /*dt*/)
                 }
             }
         }
+        else if (b.type == BcType::Inflow && b.conveyance) {
+            // Weighted by conveyance under the highest water surface on the run
+            // (boundary.hpp). A dry run takes all of Q on its lowest cell.
+            auto cell = [&](int m) -> std::size_t {
+                switch (b.side) {
+                case Side::West:  return g.k(0, m);
+                case Side::East:  return g.k(g.nx - 1, m);
+                case Side::North: return g.k(m, 0);
+                default:          return g.k(m, g.ny - 1);
+                }
+            };
+            double Hs = -1e30, zlow = 1e30; int mlow = b.begin;
+            for (int m = b.begin; m < b.end; ++m) {
+                const std::size_t k = cell(m);
+                if (F.h[k] > P.h_dry) Hs = std::max(Hs, F.H(k));
+                if (F.z[k] < zlow) { zlow = F.z[k]; mlow = m; }
+            }
+            w_.assign(std::size_t(cnt), 0.0);
+            double ws = 0.0;
+            for (int m = b.begin; m < b.end; ++m) {
+                const double d = Hs - F.z[cell(m)];
+                const double w = (d > 0.0) ? std::pow(d, 5.0 / 3.0) : 0.0;
+                w_[std::size_t(m - b.begin)] = w; ws += w;
+            }
+            if (ws <= 0.0) { w_[std::size_t(mlow - b.begin)] = 1.0; ws = 1.0; }
+            const double Q = b.Q.at(t);
+            for (int m = b.begin; m < b.end; ++m) {
+                const double q = Q * w_[std::size_t(m - b.begin)] / (ws * g.dx);
+                switch (b.side) {
+                case Side::West:  F.qx[g.fx(0, m)]    =  q; break;
+                case Side::East:  F.qx[g.fx(g.nx, m)] = -q; break;
+                case Side::North: F.qy[g.fy(m, 0)]    =  q; break;
+                case Side::South: F.qy[g.fy(m, g.ny)] = -q; break;
+                }
+            }
+        }
         else if (b.type == BcType::Inflow) {
             // Total discharge spread evenly over the face width. q is per unit
             // width, so q = Q / (cnt * dx). Sign puts flow INTO the domain.
@@ -282,6 +318,12 @@ void SchemeInertial::update_depths(double dt, MassBalance& mb)
 
     if (src_now != 0.0) mb.v_rain += src_now * dt * A * double(g.ncell());
 
+    for (std::size_t m = 0; m < points.size(); ++m) {
+        const std::size_t k = g.k(points[m].i, points[m].j);
+        F.h[k]  += pt_now[m] * dt / A;
+        mb.v_in += pt_now[m] * dt;
+    }
+
     // Boundary volumes, tallied from the faces actually used this step.
     for (const auto& b : BC) {
         if (b.type == BcType::Wall) continue;
@@ -355,6 +397,9 @@ double SchemeInertial::step(double t, MassBalance& mb)
     // start biases a step function high on a rising limb and low on a falling
     // one; the midpoint is second-order and costs nothing.
     src_now = source.t.empty() ? 0.0 : source.at(t + 0.5 * dt);
+    pt_now.resize(points.size());
+    for (std::size_t m = 0; m < points.size(); ++m)
+        pt_now[m] = std::max(0.0, points[m].Q.at(t + 0.5 * dt));
     update_faces(dt);
     apply_boundaries(t, dt);
     limit_fluxes(dt);

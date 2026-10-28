@@ -62,7 +62,16 @@ public:
     // it as runoff. See tools/hms_rainfall.py.
     Series source;
 
+    // Point sources: a discharge Q(t) [m^3/s] added to one cell's continuity.
+    // For tributaries that join inside the domain (Rock Creek: Luzon and Broad
+    // Branch, local lateral inflow), where an edge inflow would need the domain
+    // to reach up every side valley. Counted in MassBalance::v_in.
+    struct PointSource { int i = 0, j = 0; Series Q; std::string name; };
+    std::vector<PointSource> points;
+
 private:
+    std::vector<double> pt_now;   // point-source rates used by the current step
+    std::vector<double> w_;       // scratch: conveyance weights of a weighted inflow run
     void update_faces(double dt);
     void apply_boundaries(double t, double dt);
     void limit_fluxes(double dt);

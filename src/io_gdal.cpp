@@ -302,6 +302,39 @@ bool write_gtiff(const std::string& path,
     return true;
 }
 
+bool load_field(const std::string& path, const Grid& g, std::vector<double>& a,
+                double fill, std::string* err)
+{
+    a.assign(g.ncell(), fill);
+    GDALDataset* ds = static_cast<GDALDataset*>(GDALOpen(path.c_str(), GA_ReadOnly));
+    if (!ds) { if (err) *err = "cannot open " + path; return false; }
+    double gt[6];
+    if (ds->GetGeoTransform(gt) != CE_None) {
+        if (err) *err = "no geotransform in " + path;
+        GDALClose(ds); return false;
+    }
+    const int lnx = ds->GetRasterXSize(), lny = ds->GetRasterYSize();
+    std::vector<float> v(std::size_t(lnx) * lny);
+    if (ds->GetRasterBand(1)->RasterIO(GF_Read, 0, 0, lnx, lny,
+                                       v.data(), lnx, lny, GDT_Float32, 0, 0) != CE_None) {
+        if (err) *err = "RasterIO failed on " + path;
+        GDALClose(ds); return false;
+    }
+    int has_nd = 0;
+    const double nd = ds->GetRasterBand(1)->GetNoDataValue(&has_nd);
+    GDALClose(ds);
+    for (int j = 0; j < g.ny; ++j)
+        for (int i = 0; i < g.nx; ++i) {
+            const int ci = int((g.xc(i) - gt[0]) / gt[1]);
+            const int cj = int((g.yc(j) - gt[3]) / gt[5]);
+            if (ci < 0 || ci >= lnx || cj < 0 || cj >= lny) continue;
+            const double x = double(v[std::size_t(cj) * lnx + ci]);
+            if ((has_nd && x == nd) || !std::isfinite(x)) continue;
+            a[g.k(i, j)] = x;
+        }
+    return true;
+}
+
 } // namespace dwe
 
 #endif // DWE_WITH_GDAL

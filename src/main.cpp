@@ -62,6 +62,18 @@ struct Case
     // inferred from t_end, because --tend overrides t_end on the command line
     // and would then silently select the wrong rainfall file.
     std::string          storm = "6hr";
+
+    // --- config-file cases (case_config.hpp) ---------------------------------
+    struct Gauge { std::string name; int i = 0, j = 0; };
+    bool                 is_config = false;
+    std::string          manning;              // Manning n GeoTIFF on the terrain grid
+    std::string          crs = "EPSG:26912";   // CRS stamped on the output GeoTIFFs
+    std::vector<SchemeInertial::PointSource> points;
+    std::vector<Gauge>   gauges;
+    double               t_gauge = 300.0;      // s
+    std::vector<std::string> frames;           // "depth", "speed": GeoTIFF frames every t_out
+    double               flood_h = 0.15;       // m, threshold for the flooded-area series
+    std::string          time0;                // wall-clock label of t = 0
 };
 
 static Case make_plane()
@@ -989,6 +1001,8 @@ static Case make_c7b(double dx_target, Agg agg, const std::string& dem_override,
     return c;
 }
 
+#include "case_config.hpp"
+
 int main(int argc, char** argv)
 {
     // Line-buffer stdout. Redirected to a file it is block-buffered by default,
@@ -1006,6 +1020,7 @@ int main(int argc, char** argv)
     std::string demov;
     std::string nrast;   // --manning: a direct n raster, overriding land cover
     std::string storm = "6hr";
+    std::string cfgfile;
     for (int a = 1; a < argc; ++a) {
         if (std::strcmp(argv[a], "--out") == 0 && a + 1 < argc) outdir = argv[++a];
         else if (std::strcmp(argv[a], "--tend") == 0 && a + 1 < argc) tend = std::atof(argv[++a]);
@@ -1021,11 +1036,20 @@ int main(int argc, char** argv)
         else if (std::strcmp(argv[a], "--dem")  == 0 && a + 1 < argc) demov = argv[++a];
         else if (std::strcmp(argv[a], "--manning") == 0 && a + 1 < argc) nrast = argv[++a];
         else if (std::strcmp(argv[a], "--storm")== 0 && a + 1 < argc) storm = argv[++a];
+        else if (std::strcmp(argv[a], "--config")== 0 && a + 1 < argc) { cfgfile = argv[++a]; which = "config"; }
         else which = argv[a];
     }
 
     Case c;
-    if (which == "pond")      c = make_pond();
+    if (which == "config") {
+#ifdef DWE_WITH_GDAL
+        c = make_config(cfgfile);
+#else
+        std::printf("*** --config needs a GDAL build (CONFIG+=with_gdal)\n");
+        return 2;
+#endif
+    }
+    else if (which == "pond")      c = make_pond();
     else if (which == "nm141") {
 #ifdef DWE_WITH_GDAL
         const Agg agg = (aggs == "min") ? Agg::Min
@@ -1107,6 +1131,7 @@ int main(int argc, char** argv)
     F.h = c.h0;
 
 #ifdef DWE_WITH_GDAL
+    if (nrast.empty() && !c.manning.empty()) nrast = c.manning;
     if (!nrast.empty()) {
         // A roughness raster supplied directly. This is the carved-channel case:
         // the lining is 1.2 m wide and no land-cover product resolves it, so the
@@ -1159,6 +1184,7 @@ int main(int argc, char** argv)
 #endif
 
     SchemeInertial solver(F, c.p, c.bcs);
+    solver.points = c.points;
 
     // ---- DIRECT RAINFALL ON THE DOMAIN ------------------------------------
     // Excess precipitation, applied uniformly. This is NOT double counting the
@@ -1241,22 +1267,112 @@ int main(int argc, char** argv)
     std::vector<double> h_max(c.g.ncell(), 0.0);
     std::vector<double> wse_max(c.g.ncell(), -9999.0);
 
+    // ---- config cases: speed envelope, flood arrival, gauges, GeoTIFF frames ----
+    // Cell speed from the four face discharges: |(qx_w+qx_e)/2, (qy_n+qy_s)/2| / h.
+    auto cell_speed = [&](int i, int j) {
+        const std::size_t k = c.g.k(i, j);
+        if (F.h[k] <= c.p.h_dry) return 0.0;
+        const double u = 0.5 * (F.qx[c.g.fx(i, j)] + F.qx[c.g.fx(i + 1, j)]);
+        const double v = 0.5 * (F.qy[c.g.fy(i, j)] + F.qy[c.g.fy(i, j + 1)]);
+        return std::hypot(u, v) / std::max(F.h[k], 0.05);   // floor: no spurious speed on a film
+    };
+    // Discharge through a boundary run, + into the domain.
+    auto edge_flow = [&](const Boundary& b) {
+        double q = 0.0;
+        const int e = (b.end < 0) ? ((b.side == Side::West || b.side == Side::East) ? c.g.ny : c.g.nx) : b.end;
+        for (int m = std::max(b.begin, 0); m < e; ++m) {
+            switch (b.side) {
+            case Side::West:  q +=  F.qx[c.g.fx(0, m)];         break;
+            case Side::East:  q += -F.qx[c.g.fx(c.g.nx, m)];    break;
+            case Side::North: q +=  F.qy[c.g.fy(m, 0)];         break;
+            case Side::South: q += -F.qy[c.g.fy(m, c.g.ny)];    break;
+            }
+        }
+        return q * c.g.dx;
+    };
+    std::vector<double> spd_max, t_flood;
+    FILE*  gfile    = nullptr;
+    double t_next_g = 0.0;
+#ifdef DWE_WITH_GDAL
+    if (c.is_config) {
+        spd_max.assign(c.g.ncell(), 0.0);
+        t_flood.assign(c.g.ncell(), -9999.0);
+        if (!c.frames.empty()) std::filesystem::create_directories(c.p.out_dir + "/frames");
+        gfile = std::fopen((c.p.out_dir + "/gauges.csv").c_str(), "w");
+        std::fprintf(gfile, "# 2D-DWE gauges, case %s, t = 0 at %s\n", c.name.c_str(),
+                     c.time0.empty() ? "(not given)" : c.time0.c_str());
+        std::fprintf(gfile, "t_s");
+        for (const auto& gg : c.gauges) std::fprintf(gfile, ",%s_depth_m,%s_wse_m", gg.name.c_str(), gg.name.c_str());
+        std::fprintf(gfile, ",Q_in_edge_cms,Q_in_points_cms,Q_out_cms,flooded_area_m2,volume_m3\n");
+    }
+#endif
+
     while (t < c.p.t_end && step < c.p.max_steps) {
-        if (c.p.write_vti && t >= t_next_out) {
+        if (t >= t_next_out && (c.p.write_vti || !c.frames.empty())) {
             char path[512];
-            std::snprintf(path, sizeof(path), "%s/%s_%04ld.vti",
-                          c.p.out_dir.c_str(), c.name.c_str(), nout);
-            write_vti(path, F);
+            if (c.p.write_vti) {
+                std::snprintf(path, sizeof(path), "%s/%s_%04ld.vti",
+                              c.p.out_dir.c_str(), c.name.c_str(), nout);
+                write_vti(path, F);
+            }
+#ifdef DWE_WITH_GDAL
+            for (const auto& fr : c.frames) {
+                std::vector<double> a(c.g.ncell(), 0.0);
+                if (fr == "depth") a = F.h;
+                else if (fr == "speed") {
+#pragma omp parallel for schedule(static)
+                    for (int j = 0; j < c.g.ny; ++j)
+                        for (int i = 0; i < c.g.nx; ++i) a[c.g.k(i, j)] = cell_speed(i, j);
+                }
+                else continue;
+                std::snprintf(path, sizeof(path), "%s/frames/%s_%04ld.tif",
+                              c.p.out_dir.c_str(), fr.c_str(), nout);
+                write_gtiff(path, c.g, a, c.crs);
+            }
+#endif
             ++nout;
             t_next_out += c.p.t_out;
         }
+        if (gfile && t >= t_next_g) {
+            std::fprintf(gfile, "%.1f", t);
+            for (const auto& gg : c.gauges) {
+                const std::size_t k = c.g.k(gg.i, gg.j);
+                std::fprintf(gfile, ",%.4f,%.4f", F.h[k], F.H(k));
+            }
+            double qin = 0.0, qout = 0.0, qpt = 0.0;
+            for (const auto& b : c.bcs) {
+                if (b.type == BcType::Inflow) qin += edge_flow(b);
+                else if (b.type == BcType::NormalDepth) qout -= edge_flow(b);
+            }
+            for (const auto& pnt : c.points) qpt += std::max(0.0, pnt.Q.at(t));
+            std::size_t nfl = 0;
+#pragma omp parallel for schedule(static) reduction(+:nfl)
+            for (std::size_t k = 0; k < c.g.ncell(); ++k) nfl += (F.h[k] > c.flood_h);
+            std::fprintf(gfile, ",%.4f,%.4f,%.4f,%.1f,%.1f\n", qin, qpt, qout,
+                         nfl * c.g.area(), F.volume());
+            std::fflush(gfile);
+            t_next_g += c.t_gauge;
+        }
 
         const double dt = solver.step(t, mb);
+#pragma omp parallel for schedule(static)
         for (std::size_t k = 0; k < c.g.ncell(); ++k) {
             if (F.h[k] > h_max[k]) {
                 h_max[k]   = F.h[k];
                 wse_max[k] = F.H(k);
             }
+        }
+        if (c.is_config) {
+            const double tn = t + dt;
+#pragma omp parallel for schedule(static)
+            for (int j = 0; j < c.g.ny; ++j)
+                for (int i = 0; i < c.g.nx; ++i) {
+                    const std::size_t k = c.g.k(i, j);
+                    if (F.h[k] <= c.p.h_dry) continue;
+                    const double sp = cell_speed(i, j);
+                    if (sp > spd_max[k]) spd_max[k] = sp;
+                    if (t_flood[k] < 0.0 && F.h[k] > c.flood_h) t_flood[k] = tn;
+                }
         }
         t += dt;
         ++step;
@@ -1273,6 +1389,7 @@ int main(int argc, char** argv)
 
     std::printf("---------------------------------------------------------------------\n");
     std::printf("finished      %ld steps, t = %.2f s\n", step, t);
+    if (gfile) std::fclose(gfile);
     mb.report(t, F.volume(), c.p.mass_tol);
 
     // --- case-specific acceptance ---------------------------------------
@@ -1318,17 +1435,24 @@ int main(int argc, char** argv)
     // it, because a flashy 30-minute-Tc peak can fall between two frames. h_max
     // here is the running maximum over every timestep.
     if (c.name == "c6" || c.name == "nm141" || c.name == "az140"
-        || c.name == "c7b" || c.name == "c4b" || c.name == "c4a") {
+        || c.name == "c7b" || c.name == "c4b" || c.name == "c4a" || c.is_config) {
+        if (c.is_config) {
+            write_gtiff(c.p.out_dir + "/speed_max.tif", c.g, spd_max, c.crs);
+            std::vector<double> th(c.g.ncell(), -9999.0);
+            for (std::size_t k = 0; k < c.g.ncell(); ++k)
+                if (t_flood[k] >= 0.0) th[k] = t_flood[k] / 3600.0;
+            write_gtiff(c.p.out_dir + "/t_flood_h.tif", c.g, th, c.crs);   // hours after t = 0
+        }
         for (std::size_t k = 0; k < c.g.ncell(); ++k)
             if (h_max[k] <= c.p.h_dry) wse_max[k] = -9999.0;
-        write_gtiff(c.p.out_dir + "/depth_max.tif", c.g, h_max);
-        write_gtiff(c.p.out_dir + "/wse_max.tif",   c.g, wse_max);
+        write_gtiff(c.p.out_dir + "/depth_max.tif", c.g, h_max, c.crs);
+        write_gtiff(c.p.out_dir + "/wse_max.tif",   c.g, wse_max, c.crs);
 
         std::vector<double> wse_f(c.g.ncell());
         for (std::size_t k = 0; k < c.g.ncell(); ++k)
             wse_f[k] = (F.h[k] > c.p.h_dry) ? F.H(k) : -9999.0;
-        write_gtiff(c.p.out_dir + "/depth_final.tif", c.g, F.h);
-        write_gtiff(c.p.out_dir + "/wse_final.tif",   c.g, wse_f);
+        write_gtiff(c.p.out_dir + "/depth_final.tif", c.g, F.h, c.crs);
+        write_gtiff(c.p.out_dir + "/wse_final.tif",   c.g, wse_f, c.crs);
 
         double hm = 0.0;
         for (std::size_t k = 0; k < c.g.ncell(); ++k) hm = std::max(hm, h_max[k]);
@@ -1358,7 +1482,7 @@ int main(int argc, char** argv)
         for (int q = 0; q < 3; ++q)
             std::printf("      > %.0f ft : %9zu cells  %10.1f acres  %8.3f sq mi\n",
                         BAND_FT[q], nb[q], nb[q] * acre, nb[q] * acre / 640.0);
-        write_gtiff(c.p.out_dir + "/depth_bands.tif", c.g, band);
+        write_gtiff(c.p.out_dir + "/depth_bands.tif", c.g, band, c.crs);
         std::printf("  wrote depth_max / wse_max / depth_final / wse_final / depth_bands"
                     " .tif to %s/\n", c.p.out_dir.c_str());
     }
