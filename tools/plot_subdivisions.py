@@ -10,11 +10,17 @@ Depths are GROUND depths: structures are absent from the terrain model and no
 finished-floor elevations exist, so a structure in a depth class is not a
 flooded building.
 """
-import sys
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from run_facts import facts
 RUN = sys.argv[1] if len(sys.argv) > 1 else "out_c6_1m"
 DXM = float(sys.argv[2]) if len(sys.argv) > 2 else 1.0
 TITLE = sys.argv[4] if len(sys.argv) > 4 else (
     "C10" if "nm141" in RUN else "C6 Coyote Canyon")
+# Storm and run length from the log, not hard-coded -- see run_facts.py.
+F = facts(RUN)
+STORM = F.get("storm") or "100-yr 6-hr"
+SIMH  = F.get("sim_hours")
 import numpy as np, matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -23,14 +29,16 @@ from matplotlib.patches import Patch
 from osgeo import gdal, ogr
 gdal.UseExceptions(); ogr.UseExceptions()
 FT=3.280839895
-OUT="/home/arash/Projects/2D-DWE/"+RUN
+# RUN may be an absolute path: the post-culvert-10 runs live under the GIS
+# project, not in the solver's working directory.
+OUT=RUN if os.path.isabs(RUN) else "/home/arash/Projects/2D-DWE/"+RUN
 r=gdal.Open(OUT+"/depth_max.tif"); b=r.GetRasterBand(1)
 a=b.ReadAsArray().astype(float); nd=b.GetNoDataValue()
 a=np.where((a==nd)|~np.isfinite(a),0.0,a)*FT
 gt=r.GetGeoTransform(); ny,nx=a.shape
 ext=[gt[0],gt[0]+nx*gt[1],gt[3]-ny*gt[1],gt[3]]
-DEMPATH = sys.argv[3] if len(sys.argv) > 3 else \
-    "/home/arash/Dropbox/Chloeta/NHA/WS3_GIS/NM15-097/outputs_2D/cliped_dem.tif"
+DEMPATH = sys.argv[3] if len(sys.argv) > 3 else (F.get("terrain") or
+    "/home/arash/Dropbox/Chloeta/NHA/WS3_GIS/NM15-097/outputs_2D/cliped_dem.tif")
 t=gdal.Warp("",DEMPATH,
             format="MEM",width=nx,height=ny,resampleAlg="average")
 zb=t.GetRasterBand(1).ReadAsArray().astype(float)
@@ -105,10 +113,12 @@ ax.scatter(sx[dry],sy[dry],s=26,c="#ffffff",ec="#333",lw=.7,zorder=7,label="Stru
 ax.scatter(sx[~dry],sy[~dry],s=90,c="#e8112d",ec="k",lw=1.1,marker="s",zorder=8,
            label="Structure, above 0.5 ft (%d)" % int((~dry).sum()))
 cb=fig.colorbar(im,ax=ax,shrink=.85,pad=.012,ticks=lv)
-cb.set_label("Maximum depth over the 9-hour event (ft)",fontsize=10)
+cb.set_label("Maximum depth over the %s event (ft)"
+             % (("%.0f-hour" % SIMH) if SIMH else "simulated"),fontsize=10)
 ax.set_xlim(bx0,bx1); ax.set_ylim(by0,by1); ax.set_aspect("equal")
 ax.set_title(TITLE + " — flooding WITHIN the subdivisions\n"
-             "2D-DWE, %.0f m grid, 100-yr 6-hr transient hydrograph — PRELIMINARY" % DXM,fontsize=12.5)
+             "2D-DWE, %.0f m grid, %s transient hydrograph"
+             % (DXM, STORM),fontsize=12.5)
 ax.set_xlabel("UTM Zone 12N Easting (m)"); ax.set_ylabel("Northing (m)")
 h,l=ax.get_legend_handles_labels()
 h.append(Patch(fc="none",ec="#ffd400",lw=2,label="NHA subdivision boundary"))

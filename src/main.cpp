@@ -489,6 +489,136 @@ static Case make_nm141(double dx_target, Agg agg, const std::string& dem_overrid
 }
 
 
+// =============================================================================
+// NM15-032 (Ojo Amarillo, cluster C9) -- the NORTH-SIDE CHANNEL of the subdivision.
+//
+// GIS project:  WS3_GIS/NM15-032LocalE_North_Channel   (inputs: outputs_2D/inputs,
+// built by outputs_2D/make_2d_inputs.py; HMS: WS3_HMS/NM15_032LocalE_North_Channel).
+//
+// GEOMETRY: a road-side ditch runs NORTH along the west side of N 3005, passes
+// culvert 1 (under N 4080) and culvert 2 (under N 3005), then runs WEST along the
+// excavated channel on the subdivision's north edge, through culvert 3 (Ojo
+// Amarillo Rd) and culvert 4 (Elementary School Rd), and on WEST in a shallow
+// swale to the watershed outlet. Domain E 734450-736100, N 4063700-4064750.
+//
+// TERRAIN: dem_2d_culverts.tif (default) carries a >= 1.5 m conveyance notch at
+// each culvert; dem_2d_raw.tif is every culvert blocked. The culvert sizes are
+// ASSUMED (2x48 in at 1-2, 2x24 in at 3, 2x18 in at 4: the largest standard CMP
+// that fits under each road) -- NHA has not supplied them.
+//
+// INFLOWS: Junction_9 (the ditch, SOUTH edge, 4.1 km2) and Subbasin_4 (EAST
+// edge). Subbasins 1+2+3 are a uniform volume-preserving rain source. A
+// separate ~1.5 km2 drainage enters the south edge WEST of the subdivision; it is
+// outside this watershed and NOT represented.
+//
+// ROUGHNESS: run with  --manning <inputs>/manning_existing_1m.tif  (channel full
+// of shrubs, n 0.080) or manning_cleared_1m.tif (n 0.035). Without --manning it
+// falls back to NLCD (landcover_2d.tif + manning_n_2d.csv), which does not see
+// the channel vegetation at all.
+// =============================================================================
+static const char* NM032N_DIR =
+    "/home/arash/Dropbox/Chloeta/NHA/WS3_GIS/NM15-032LocalE_North_Channel/outputs_2D/inputs";
+
+static Case make_nm032n(double dx_target, Agg agg, const std::string& dem_override,
+                        const std::string& storm)
+{
+    Case c;
+    c.name = "nm032n";
+    const std::string terr = dem_override.empty()
+                           ? std::string(NM032N_DIR) + "/dem_2d_culverts.tif"
+                           : dem_override;
+    std::vector<char> valid;
+    std::string err;
+    if (!load_terrain(terr, dx_target, agg, c.g, c.z, valid, &err)) {
+        std::printf("*** terrain: %s\n", err.c_str());
+        std::exit(2);
+    }
+    std::printf("terrain       %s\n", terr.c_str());
+    std::printf("              %d x %d @ %.2f m  (requested %.2f m)\n",
+                c.g.nx, c.g.ny, c.g.dx, dx_target);
+
+    c.p.n_default    = 0.050;
+    const bool s24 = (storm == "24hr");
+    c.storm = storm;
+    c.p.t_end        = (s24 ? 36.0 : 9.0) * 3600.0;     // the HMS record length
+    c.p.t_out        = s24 ? 7200.0 : 1800.0;
+    c.p.report_every = 500;
+    c.p.dt_max       = 5.0;
+    c.h0.assign(c.g.ncell(), 0.0);
+
+    struct InflowSpec { Side side; double target; const char* csv; const char* name; };
+    std::printf("storm         %s 100-yr\n", s24 ? "24-hour" : "6-hour");
+    const InflowSpec specs[2] = {
+        { Side::South, 735908.0,  s24 ? "/inflow_south_24hr_100yr.csv" : "/inflow_south_6hr_100yr.csv",
+          "Junction_9, road-side ditch (south)" },
+        { Side::East,  4063808.0, s24 ? "/inflow_east_24hr_100yr.csv"  : "/inflow_east_6hr_100yr.csv",
+          "Subbasin_4, NE subbasin (east)" },
+    };
+    // The ditch is a narrow V beside a 1-2 m road embankment: a 3 m band (NM15-141)
+    // would run the face up onto the road. 1 m and a 30 m cap keep it in the ditch.
+    const double BAND_M = 1.0, SEARCH_M = 30.0, MAX_FACE_M = 30.0;
+
+    std::vector<Boundary> bcs;
+    for (const auto& sp : specs) {
+        const bool horiz = (sp.side == Side::South || sp.side == Side::North);
+        const int  n     = horiz ? c.g.nx : c.g.ny;
+        const int ctr = horiz ? int((sp.target - c.g.x0) / c.g.dx)
+                              : int((c.g.y0 - sp.target) / c.g.dx);
+        const int rad = std::max(1, int(SEARCH_M / c.g.dx));
+        auto zedge = [&](int m) {
+            switch (sp.side) {
+            case Side::South: return c.z[c.g.k(m, c.g.ny - 1)];
+            case Side::North: return c.z[c.g.k(m, 0)];
+            case Side::West:  return c.z[c.g.k(0, m)];
+            default:          return c.z[c.g.k(c.g.nx - 1, m)];
+            }
+        };
+        double zmin = 1e30; int mmin = std::min(std::max(ctr, 0), n - 1);
+        for (int m = std::max(0, ctr - rad); m <= std::min(n - 1, ctr + rad); ++m)
+            if (zedge(m) < zmin) { zmin = zedge(m); mmin = m; }
+        int lo = mmin, hi = mmin;
+        const int maxhalf = std::max(1, int(0.5 * MAX_FACE_M / c.g.dx));
+        while (lo > 0     && zedge(lo - 1) <= zmin + BAND_M && mmin - lo < maxhalf) --lo;
+        while (hi < n - 1 && zedge(hi + 1) <= zmin + BAND_M && hi - mmin < maxhalf) ++hi;
+        const bool capped = (mmin - lo >= maxhalf) || (hi - mmin >= maxhalf);
+
+        Boundary in;
+        in.side  = sp.side;
+        in.type  = BcType::Inflow;
+        in.begin = lo;
+        in.end   = hi + 1;
+        in.Q     = Series::from_csv(std::string(NM032N_DIR) + sp.csv);
+        in.name  = sp.name;
+        if (in.Q.t.size() < 2) {
+            // Both inflows are required: refuse rather than run a model that is
+            // silently missing one (the NM15-141 case carries on, and prints a
+            // "MISSING" line nobody reads).
+            std::printf("*** could not read %s%s -- refusing to run without it\n",
+                        NM032N_DIR, sp.csv);
+            std::exit(2);
+        }
+        std::printf("inflow        %-36s %-5s edge, peak %6.2f m3/s (%4.0f cfs) at %.2f h\n"
+                    "              %5.1f ac-ft, face %.0f m wide, edge low %.2f m\n",
+                    sp.name, sp.side == Side::South ? "SOUTH" : "EAST",
+                    in.Q.peak(), in.Q.peak() / 0.028316847, in.Q.t_peak() / 3600.0,
+                    in.Q.volume() / 1233.4818, (in.end - in.begin) * c.g.dx, zmin);
+        if (capped)
+            std::printf("              NOTE: face CAPPED at %.0f m\n", MAX_FACE_M);
+        bcs.push_back(in);
+    }
+    // Outfalls: the swale leaves through the WEST edge (bed slope ~0.006); a small
+    // area north of the channel drains off the NORTH edge.
+    Boundary w;  w.side = Side::West;  w.type = BcType::NormalDepth; w.slope = 0.006;
+    w.name = "west edge outfall (watershed outlet)";  bcs.push_back(w);
+    Boundary nn; nn.side = Side::North; nn.type = BcType::NormalDepth; nn.slope = 0.010;
+    nn.name = "north edge outfall";                  bcs.push_back(nn);
+    c.bcs = bcs;
+    std::printf("outflow       normal depth: west edge S = 0.006, north edge S = 0.010\n");
+    std::printf("              HMS Outlet peak %s\n", s24 ? "204 cfs" : "207 cfs");
+    return c;
+}
+
+
 // -----------------------------------------------------------------------------
 // C4 ANALYSIS B -- the South Tributary Wash at Cottonwood / Tselani, AZ
 // (NHA projects AZ12-100 and AZ12-116, cluster C4).
@@ -1036,6 +1166,16 @@ int main(int argc, char** argv)
         return 2;
 #endif
     }
+    else if (which == "nm032n") {
+#ifdef DWE_WITH_GDAL
+        const Agg agg = (aggs == "min") ? Agg::Min
+                      : (aggs == "max") ? Agg::Max : Agg::Mean;
+        c = make_nm032n(dxt, agg, demov, storm);
+#else
+        std::printf("*** the nm032n case needs GDAL: rebuild with  qmake6 CONFIG+=with_gdal\n");
+        return 2;
+#endif
+    }
     else if (which == "c4a") {
 #ifdef DWE_WITH_GDAL
         const Agg agg = (aggs == "min") ? Agg::Min
@@ -1125,22 +1265,25 @@ int main(int argc, char** argv)
         std::printf("              %zu cells at n < 0.020 -- the concrete lining\n", nlin);
     }
     else if (c.name == "c6" || c.name == "nm141" || c.name == "az140"
-             || c.name == "c7b" || c.name == "c4b" || c.name == "c4a") {
+             || c.name == "c7b" || c.name == "c4b" || c.name == "c4a" || c.name == "nm032n") {
         std::string err;
         const bool is141 = (c.name == "nm141");
         const bool is140 = (c.name == "az140");
         const bool is7b  = (c.name == "c7b");
         const bool is4b  = (c.name == "c4b");
         const bool is4a  = (c.name == "c4a");
+        const bool is32n = (c.name == "nm032n");
         const std::string lcras =
-            is4a  ? std::string(C4A_DIR) + "/landcover_2d.tif"
+            is32n ? std::string(NM032N_DIR) + "/landcover_2d.tif"
+          : is4a  ? std::string(C4A_DIR) + "/landcover_2d.tif"
           : is4b  ? std::string(C4B_DIR) + "/landcover_2d.tif"
           : is7b  ? std::string(C7B_SITE) + "/outputs_2D/landcover_2d.tif"
           : is140 ? std::string(AZ140_SITE) + "/landcover/nlcd_2023_AZ12-140_utm12n.tif"
           : is141 ? std::string(NM141_LC)
                   : std::string(C6_DIR) + "/landcover_2d.tif";
         const std::string lccsv =
-            is4a  ? std::string(C4A_DIR) + "/manning_n_2d.csv"
+            is32n ? std::string(NM032N_DIR) + "/manning_n_2d.csv"
+          : is4a  ? std::string(C4A_DIR) + "/manning_n_2d.csv"
           : is4b  ? std::string(C4B_DIR) + "/manning_n_2d.csv"
           : is7b  ? std::string(C7B_SITE) + "/outputs_2D/manning_n_2d.csv"
           : is140 ? std::string(AZ140_SITE) + "/outputs_2D/manning_n_2d.csv"
@@ -1167,11 +1310,17 @@ int main(int argc, char** argv)
     // Outlet without passing through Reach_58. The community bench is outside
     // the watershed altogether -- the controlling divide IS the watershed
     // boundary. See tools/hms_rainfall.py.
-    if (c.name == "c6" || c.name == "nm141" || c.name == "c7b" || c.name == "c4b") {
+    if (c.name == "c6" || c.name == "nm141" || c.name == "c7b" || c.name == "c4b"
+        || c.name == "nm032n") {
         const bool is141 = (c.name == "nm141");
+        const bool is32n = (c.name == "nm032n");
         const bool is7b  = (c.name == "c7b");
         const bool is4b  = (c.name == "c4b");
-        const std::string rcsv = is4b
+        const std::string rcsv = is32n
+            ? std::string(NM032N_DIR) + (c.storm == "24hr"
+                  ? "/rain_local_24hr_100yr.csv"
+                  : "/rain_local_6hr_100yr.csv")
+          : is4b
             ? std::string(C4B_DIR) + (c.storm == "24hr"
                   ? "/rain_domain_24hr_100yr.csv"
                   : "/rain_domain_6hr_100yr.csv")
@@ -1195,7 +1344,8 @@ int main(int argc, char** argv)
                 dep += solver.source.v[i - 1] * (solver.source.t[i] - solver.source.t[i - 1]);
             std::printf("rainfall      %s\n"
                         "              %.4f in (%.1f ac-ft), peak %.3f in/h, %.1f h long\n",
-                        is141 ? "LOCAL subbasin runoff (Sub 1,2,3,57) as a uniform source"
+                        is32n ? "LOCAL runoff of HMS Subbasins 1+2+3 as a uniform source"
+                      : is141 ? "LOCAL subbasin runoff (Sub 1,2,3,57) as a uniform source"
                               : is7b ? "excess precipitation, area-weighted over 28 subbasins"
                                      : "excess precipitation, uniform over the domain",
                         dep / 0.0254, dep * c.g.ncell() * c.g.area() / 1233.4818,
@@ -1318,7 +1468,8 @@ int main(int argc, char** argv)
     // it, because a flashy 30-minute-Tc peak can fall between two frames. h_max
     // here is the running maximum over every timestep.
     if (c.name == "c6" || c.name == "nm141" || c.name == "az140"
-        || c.name == "c7b" || c.name == "c4b" || c.name == "c4a") {
+        || c.name == "c7b" || c.name == "c4b" || c.name == "c4a"
+        || c.name == "nm032n") {
         for (std::size_t k = 0; k < c.g.ncell(); ++k)
             if (h_max[k] <= c.p.h_dry) wse_max[k] = -9999.0;
         write_gtiff(c.p.out_dir + "/depth_max.tif", c.g, h_max);

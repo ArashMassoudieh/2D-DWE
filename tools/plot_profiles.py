@@ -27,15 +27,24 @@ from osgeo import gdal, ogr, osr
 gdal.UseExceptions(); ogr.UseExceptions()
 FT = 3.280839895
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from run_facts import facts
+
 RUN = sys.argv[1] if len(sys.argv) > 1 else "out_nm141_1m_v3_carved_2m"
 DXM = float(sys.argv[2]) if len(sys.argv) > 2 else 1.0
+F = facts(RUN)
+STORM = F.get("storm") or "100-yr 6-hr"
 SITE = "/home/arash/Dropbox/Chloeta/NHA/WS3_GIS/NM15-141Local"
 C6   = "/home/arash/Dropbox/Chloeta/NHA/WS3_GIS/NM15-097/outputs/"
 # terrain must match the run: plotting a carved profile under a blocked-run
 # water surface would show water standing in a notch the run never had.
-TERR = sys.argv[3] if len(sys.argv) > 3 else (
+# The run log names the terrain the solver actually loaded, so it cannot
+# disagree with the run. The previous rule -- RUN.endswith("raw") -- silently
+# picks the CARVED dem for a blocked run once the folder is named
+# "..._raw_postC10", drawing water standing in a notch the run never had.
+TERR = sys.argv[3] if len(sys.argv) > 3 else (F.get("terrain") or (
     SITE + "/output_2D/dem_2d_raw.tif" if RUN.endswith("raw")
-    else SITE + "/output_2D/dem_2d_carved_2m.tif")
+    else SITE + "/output_2D/dem_2d_carved_2m.tif"))
 
 # ---------------------------------------------------------------- rasters ---
 def band(path):
@@ -174,8 +183,9 @@ cb = fig.colorbar(im, ax=ax, shrink=.62, pad=.02, aspect=28, ticks=lv)
 cb.set_label("Maximum depth over the event (ft)", fontsize=10)
 cb.ax.tick_params(labelsize=9)
 ax.set_xlim(ext[0], ext[1]); ax.set_ylim(ext[2], ext[3]); ax.set_aspect("equal")
-fig.suptitle("C10 -- maximum simulated depth, 100-yr 6-hr event\n"
-             "2D-DWE, %.0f m grid, all three inflows + local runoff -- PRELIMINARY" % DXM,
+fig.suptitle("C10 -- maximum simulated depth, %s event\n"
+             "2D-DWE, %.0f m grid, %d inflows + local runoff"
+             % (STORM, DXM, len(F["inflows"]) or 3),
              fontsize=13.5, y=0.965)
 ax.set_xlabel("UTM Zone 12N Easting (m)"); ax.set_ylabel("Northing (m)")
 ax.legend(handles=[Patch(fc="none", ec="#ffd400", lw=2, label="NHA subdivision"),
@@ -203,14 +213,19 @@ lines += [("", 6, "normal"),
           ("Peak depth in domain:   %.1f ft" % (dep.max() * FT), 11, "normal"),
           ("Structures in view:   %d" % len(sx), 11, "normal"),
           ("", 6, "normal"),
-          ("Inflows (HMS, 6-hr 100-yr)", 11.5, "bold"),
-          ("  Reach_147  south    3,870 cfs", 10, "normal"),
-          ("  Reach_122  west     3,374 cfs", 10, "normal"),
-          ("  Reach_99   east       424 cfs", 10, "normal"),
-          ("  local runoff (rain)   43.9 ac-ft", 10, "normal"),
-          ("  total volume         915.9 ac-ft", 10, "normal"),
-          ("  HMS Outlet           915.0 ac-ft", 10, "normal"),
-          ("", 6, "normal"),
+          ("Inflows (HMS, %s)" % STORM, 11.5, "bold")]
+# The inflow table was typed in from one run's log and then reprinted on every
+# figure. It listed three reaches and 915.9 ac-ft -- the pre-culvert-10 6-hour
+# case -- on post-culvert-10 24-hour figures that have two reaches and 1,484.5.
+for _nm, _cfs in F["inflows"]:
+    lines.append(("  %-18s %6s cfs" % (_nm, format(_cfs, ",")), 10, "normal"))
+if F.get("rain_acft") is not None:
+    lines.append(("  local runoff (rain) %7.1f ac-ft" % F["rain_acft"], 10, "normal"))
+if F.get("total_acft") is not None:
+    lines.append(("  total volume        %7.1f ac-ft" % F["total_acft"], 10, "normal"))
+if F.get("hms_acft") is not None:
+    lines.append(("  HMS Outlet          %7.1f ac-ft" % F["hms_acft"], 10, "normal"))
+lines += [("", 6, "normal"),
           ("Culvert represented as a 2 m carved notch", 9.5, "normal"),
           ("(~2.6 m barrel). Road overtops regardless.", 9.5, "normal")]
 yy = 0.93
@@ -229,8 +244,9 @@ print("wrote", out_map)
 figp = plt.figure(figsize=(15, 3.5 * nprof + 0.8), dpi=150)
 gsp = figp.add_gridspec(nprof, 1, hspace=0.46)
 figp.suptitle("C10 -- ground surface and maximum water-surface elevation\n"
-              "2D-DWE, %.0f m grid, 100-yr 6-hr event, all three inflows + local runoff"
-              " -- PRELIMINARY" % DXM, fontsize=13, y=0.995)
+              "2D-DWE, %.0f m grid, %s event, %d inflows + local runoff"
+              % (DXM, STORM, len(F["inflows"]) or 3),
+              fontsize=13, y=0.995)
 
 for i, (g, a) in enumerate(cuts):
     axp = figp.add_subplot(gsp[i])

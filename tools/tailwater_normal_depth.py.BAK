@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+"""
+Tailwater at the C10 Route 9 crossing from NORMAL DEPTH in the downstream wash.
+
+    python3 tools/tailwater_normal_depth.py
+
+WHY NOT TAKE IT FROM THE 2-D MODEL
+  The 2-D domain ends 96 m north of the road and its outflow boundary is itself
+  a normal-depth condition with an ASSUMED friction slope of 0.010. Sampling the
+  2-D water surface 76 m upstream of that boundary therefore mostly recovers the
+  boundary assumption, not an independent tailwater. It is also an envelope
+  (wse_max), so upstream and downstream maxima need not be simultaneous and
+  their difference is not a valid instantaneous head.
+
+  This computes the tailwater the way a culvert calculation should: the bed
+  slope measured from the LiDAR over the reach BELOW the crossing, a real
+  surveyed-from-terrain cross-section, and Manning normal depth for the design
+  discharge. Nothing here depends on the 2-D run.
+"""
+import numpy as np
+from osgeo import gdal
+gdal.UseExceptions()
+
+FT = 3.280839895
+S = "/home/arash/Dropbox/Chloeta/NHA/WS3_GIS/NM15-141Local"
+DEM = S + "/demhr/cliped_utm.tif"
+Q = 11922.0                    # cfs, converged 6-hr 100-yr
+XC = 711237.0                  # crossing easting
+Y0 = 3960500.0                 # just downstream (north) of the road
+REACH = 900.0                  # m of channel to measure the slope over
+
+ds = gdal.Open(DEM); GT = ds.GetGeoTransform()
+NX, NY = ds.RasterXSize, ds.RasterYSize
+def block(x0, x1, y0, y1):
+    i0 = int((x0 - GT[0]) / GT[1]); i1 = int((x1 - GT[0]) / GT[1])
+    j0 = int((GT[3] - y1) / abs(GT[5])); j1 = int((GT[3] - y0) / abs(GT[5]))
+    i0, i1 = max(0, i0), min(NX, i1); j0, j1 = max(0, j0), min(NY, j1)
+    a = ds.GetRasterBand(1).ReadAsArray(i0, j0, i1 - i0, j1 - j0).astype(float)
+    return a, GT[0] + i0 * GT[1], GT[3] - j0 * abs(GT[5])
+
+HALF = 400.0
+arr, ox, oy = block(XC - HALF, XC + HALF, Y0, Y0 + REACH)
+ny, nx = arr.shape
+
+print("Downstream reach: %.0f m of wash north of the crossing, %.0f m wide window\n" % (REACH, 2 * HALF))
+
+# thalweg: lowest cell on each east-west row
+thal_y, thal_z, thal_x = [], [], []
+for j in range(ny):
+    row = arr[j]
+    if not np.isfinite(row).any():
+        continue
+    k = int(np.nanargmin(row))
+    thal_y.append(oy - j * 1.0); thal_z.append(row[k]); thal_x.append(ox + k * 1.0)
+thal_y = np.array(thal_y); thal_z = np.array(thal_z); thal_x = np.array(thal_x)
+o = np.argsort(thal_y)
+thal_y, thal_z, thal_x = thal_y[o], thal_z[o], thal_x[o]
+
+# slope over the reach (north is downstream, so elevation should fall with increasing y)
+A_ = np.polyfit(thal_y, thal_z, 1)
+S0 = -A_[0]
+print("bed slope from the LiDAR thalweg over %.0f m : S0 = %.5f  (%.3f %%)" % (REACH, S0, 100 * S0))
+print("  thalweg falls %.2f m (%.2f ft) over the reach" % (thal_z[0] - thal_z[-1], (thal_z[0] - thal_z[-1]) * FT))
+if S0 <= 0:
+    S0 = 0.004
+    print("  (non-positive fit; falling back to S0 = %.4f)" % S0)
+
+# representative cross-section a short way downstream
+YS = Y0 + 150.0
+j = int(oy - YS)
+sec = arr[j]
+xs = ox + np.arange(nx) * 1.0
+bed = np.nanmin(sec)
+print("\ncross-section %.0f m downstream of the road, at y = %.0f" % (150.0, YS))
+print("  invert %.2f m (%.1f ft) at x = %.0f" % (bed, bed * FT, xs[int(np.nanargmin(sec))]))
+
+def conveyance(depth_m, n):
+    wse = bed + depth_m
+    wet = sec < wse
+    if not wet.any():
+        return 0.0, 0.0, 0.0
+    a = np.sum((wse - sec)[wet]) * 1.0            # m2, 1 m cells
+    # wetted perimeter: bed length across wet cells plus the two banks
+    p = np.sum(wet) * 1.0 + 2.0 * depth_m
+    r = a / p
+    a_ft, r_ft = a * FT * FT, r * FT
+    q = (1.49 / n) * a_ft * r_ft ** (2.0 / 3.0) * np.sqrt(S0)
+    return q, a_ft, np.sum(wet) * FT
+
+print("\nManning normal depth for Q = %.0f cfs:" % Q)
+print("  %-8s %10s %12s %12s %14s" % ("n", "depth (ft)", "area (sf)", "top w (ft)", "WSE (ft)"))
+res = {}
+for n in (0.035, 0.045, 0.050):
+    lo, hi = 0.01, 12.0
+    for _ in range(60):
+        mid = 0.5 * (lo + hi)
+        q, a, w = conveyance(mid, n)
+        if q < Q: lo = mid
+        else:     hi = mid
+    d = 0.5 * (lo + hi); q, a, w = conveyance(d, n)
+    wse = (bed + d) * FT
+    res[n] = wse
+    print("  %-8.3f %10.2f %12.0f %12.0f %14.2f" % (n, d * FT, a, w, wse))
+
+print("\n--- comparison at the crossing ---")
+print("  inlet invert                         6112.80 ft")
+print("  outlet invert                        6110.60 ft")
+print("  road low point                       6120.60 ft")
+print("  allowable headwater (road - 1 ft fb)    6.80 ft above inlet invert")
+for n, wse in res.items():
+    print("  normal-depth TW (n=%.3f): %8.2f ft  = %+6.2f ft rel. inlet invert" % (n, wse, wse - 6112.80))
+print("\n  2-D model wse_max 76 m from its own outflow BC: 6119.89 ft (+7.09 ft)")

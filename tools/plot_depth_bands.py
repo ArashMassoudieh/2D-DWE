@@ -30,12 +30,23 @@ from osgeo import gdal, ogr
 
 gdal.UseExceptions(); ogr.UseExceptions()
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from run_facts import facts
+
 RUN = sys.argv[1] if len(sys.argv) > 1 else "out_c6_3m"
 DXM = float(sys.argv[2]) if len(sys.argv) > 2 else 3.0
+# Site, storm and run length come from the run's own log. They were hard-coded
+# to C6 and to "100-yr 6-hr" / "9-hour", which put a C6 caption and a 6-hr
+# caption on every C10 24-hour figure that shipped in Report_for_C10.
+F = facts(RUN)
+SITE_NAME = sys.argv[4] if len(sys.argv) > 4 else (
+    "C10 Coyote Canyon" if "nm141" in RUN else "C6 Coyote Canyon")
+STORM = F.get("storm") or "100-yr 6-hr"
+SIMH  = F.get("sim_hours")
 # The subdivision and structure layers are NHA-wide clips held in the C6 folder;
 # they cover both sites. Only the TERRAIN is site-specific, so it is an argument.
 GIS = "/home/arash/Dropbox/Chloeta/NHA/WS3_GIS/NM15-097"
-DEM = sys.argv[3] if len(sys.argv) > 3 else GIS + "/outputs_2D/cliped_dem.tif"
+DEM = sys.argv[3] if len(sys.argv) > 3 else (F.get("terrain") or GIS + "/outputs_2D/cliped_dem.tif")
 FT  = 3.280839895
 BANDS = [(1.0, "#2f8fd0", "Depth > 1 ft — nuisance and access"),
          (3.0, "#1c4f9c", "Depth > 3 ft — structural / life-safety"),
@@ -130,12 +141,18 @@ for thr, col, title in BANDS:
     tot_ac = m.sum() * acre
     nstr = int((sd_ft > thr).sum())
 
+    # LAYOUT. The domain is portrait (1,098 x 1,633 m). Drawn as a full-width
+    # panel across the top it became a tall strip with most of the frame empty
+    # on either side, while the detail and the statistics were squeezed into a
+    # short row beneath. Giving the domain map its own full-height column suits
+    # its aspect exactly and lets the detail and the numbers sit beside it at a
+    # readable size.
     fig = plt.figure(figsize=(15, 11), dpi=150)
-    gs = fig.add_gridspec(2, 2, height_ratios=[1.30, 1],
-                          width_ratios=[1.05, 1], hspace=0.24, wspace=0.10)
+    gs = fig.add_gridspec(2, 2, width_ratios=[1.0, 1.32], height_ratios=[1.12, 1],
+                          hspace=0.24, wspace=0.10)
 
     # ---- main panel: whole domain ------------------------------------
-    ax = fig.add_subplot(gs[0, :])
+    ax = fig.add_subplot(gs[:, 0])      # domain map: full height, left
     ax.imshow(hs, cmap="gray", extent=ext, alpha=.92, zorder=1)
     ax.imshow(np.ma.masked_where(~m, m.astype(float)),
               cmap=matplotlib.colors.ListedColormap([col]),
@@ -146,13 +163,16 @@ for thr, col, title in BANDS:
     ax.add_patch(Rectangle((rx0, ry0), rx1 - rx0, ry1 - ry0, fill=False,
                            ec="#e8112d", lw=2.0, ls="--", zorder=11))
     ax.set_xlim(ext[0], ext[1]); ax.set_ylim(ext[2], ext[3]); ax.set_aspect("equal")
-    ax.set_title("C6 Coyote Canyon — %s\n2D-DWE, %.0f m grid, 100-yr 6-hr transient "
-                 "hydrograph — PRELIMINARY" % (title, DXM), fontsize=12.5)
+    ax.set_title("%s — %s\n2D-DWE, %.0f m grid, %s transient hydrograph"
+                 % (SITE_NAME, title, DXM, STORM), fontsize=12.5)
     ax.set_xlabel("UTM Zone 12N Easting (m)"); ax.set_ylabel("Northing (m)")
-    bl = ext[1] - 1609.34 - 1450
-    ax.plot([bl, bl + 1609.34], [ext[2] + 130, ext[2] + 130], c="k", lw=4,
+    # A 1-mile bar (1,609 m) is LONGER than this domain is wide (1,098 m), so it
+    # ran off the axes and printed its label out in the margin. 1,000 ft fits.
+    _bw = 304.8
+    bl = ext[1] - _bw - 120
+    ax.plot([bl, bl + _bw], [ext[2] + 130, ext[2] + 130], c="k", lw=4,
             zorder=9, solid_capstyle="butt")
-    ax.text(bl + 804, ext[2] + 185, "1 mile", ha="center", fontsize=9, zorder=9)
+    ax.text(bl + _bw / 2, ext[2] + 185, "1,000 ft", ha="center", fontsize=9, zorder=9)
     ax.annotate("", xy=(ext[1] - 230, ext[3] - 180), xytext=(ext[1] - 230, ext[3] - 480),
                 arrowprops=dict(arrowstyle="-|>", lw=2, color="k"), zorder=9)
     ax.text(ext[1] - 230, ext[3] - 140, "N", ha="center", fontsize=11,
@@ -160,11 +180,11 @@ for thr, col, title in BANDS:
     ax.legend(handles=[Patch(fc=col, ec="none", label="Inundated above threshold"),
                        Patch(fc="none", ec="#ffd400", lw=2, label="NHA subdivision"),
                        Line2D([], [], color="#e8112d", ls="--", lw=1.8,
-                              label="Detail below")],
+                              label="Detail, right")],
               loc="lower left", fontsize=9.5, framealpha=.93)
 
     # ---- inset: the subdivisions -------------------------------------
-    ax2 = fig.add_subplot(gs[1, 0])
+    ax2 = fig.add_subplot(gs[0, 1])     # detail: upper right
     ax2.imshow(hs, cmap="gray", extent=ext, alpha=.92, zorder=1)
     ax2.imshow(np.ma.masked_where(~m, m.astype(float)),
                cmap=matplotlib.colors.ListedColormap([col]),
@@ -177,7 +197,9 @@ for thr, col, title in BANDS:
                     marker="s", zorder=8)
     ax2.set_xlim(zx0, zx1); ax2.set_ylim(zy0, zy1); ax2.set_aspect("equal")
     ax2.set_xlabel("UTM Zone 12N Easting (m)"); ax2.set_ylabel("Northing (m)")
-    bl2 = zx0 + 70
+    # scale bar moved to the lower RIGHT: the legend occupies the lower left of
+    # this panel and the two were printing through one another.
+    bl2 = zx1 - 304.8 - 70
     ax2.plot([bl2, bl2 + 304.8], [zy0 + 55, zy0 + 55], c="k", lw=4, zorder=9,
              solid_capstyle="butt")
     ax2.text(bl2 + 152, zy0 + 78, "1,000 ft", ha="center", fontsize=8.5, zorder=9)
@@ -185,11 +207,11 @@ for thr, col, title in BANDS:
                                label="Structure below threshold (%d)" % int(dry.sum())),
                         Line2D([], [], marker="s", ls="", mfc="#e8112d", mec="k",
                                label="Structure above threshold (%d)" % nstr)],
-               loc="lower left", fontsize=9, framealpha=.93)
+               loc="upper left", fontsize=9, framealpha=.93)
 
-    ax2.set_title("Detail — NHA subdivisions", fontsize=11)
+    ax2.set_title("Detail — NHA subdivisions", fontsize=11, pad=14)
 
-    ax3 = fig.add_subplot(gs[1, 1]); ax3.axis("off")
+    ax3 = fig.add_subplot(gs[1, 1]); ax3.axis("off")   # statistics: lower right
     lines = [("Subdivision", "Acres", "Ac above", "% area"), None]
     for pn, msk_, g in submask:
         ac_tot = msk_.sum() * acre
@@ -219,7 +241,8 @@ for thr, col, title in BANDS:
     ax3.text(0.02, y, "Peak depth anywhere in domain: %.1f ft" % a.max(),
              transform=ax3.transAxes, fontsize=10.5)
     y -= 0.070
-    ax3.text(0.02, y, "Grid %.0f m  |  9-hour transient run" % DXM,
+    ax3.text(0.02, y, "Grid %.0f m  |  %s transient run"
+             % (DXM, ("%.0f-hour" % SIMH) if SIMH else "(length unread)"),
              transform=ax3.transAxes, fontsize=10.5)
 
     fig.text(0.5, -0.005,
