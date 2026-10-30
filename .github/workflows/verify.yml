@@ -1,0 +1,29 @@
+name: Verify solver
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  analytical-cases:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build dependency-free solver
+        run: make -j2
+      - name: Run analytical verification cases
+        run: make test
+
+  ea-test-4:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GDAL and raster preparation dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgdal-dev
+          python3 -m pip install numpy rasterio
+      - name: Build GDAL-enabled solver
+        run: make -j2 WITH_GDAL=1
+      - name: Run Environment Agency Test 4
+        run: make test-ea WITH_GDAL=1
