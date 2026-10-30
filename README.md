@@ -1,26 +1,41 @@
 # 2D-DWE
 
-A two-dimensional overland-flow solver for the Coyote Canyon (NHA WS3 cluster C6) spill
-problem, and for the mitigation parameter sweeps that HEC-RAS makes impractical.
+2D-DWE is a two-dimensional local-inertial overland-flow solver on a uniform raster.
+The solver core is C++17 with OpenMP and has no third-party runtime dependency. GDAL
+support adds georeferenced terrain, roughness and GeoTIFF result I/O for real-world
+and configuration-driven cases.
 
 **Status: Scheme A implemented and verified.**
 
 Start with **[DESIGN.md](DESIGN.md)**; the implementation log is Appendix A.
 
-## Build
+## Build and verify
 
-Use **`qmake6`** — plain `qmake` on this machine is a broken Qt5 symlink. In Qt Creator,
-check the kit's qmake is qmake6.
+Build the dependency-free solver and run the two self-contained analytical checks:
 
-```
-qmake6 2D-DWE.pro && make -j
-./bin/2D-DWE plane            # Manning normal depth, analytical check
-./bin/2D-DWE pond --tend 40000
+```sh
+make -j
+make test
 ```
 
-The solver core has no third-party dependency. `CONFIG+=with_gdal` adds raster I/O,
-`CONFIG+=with_vtk` the interactive viewer. Results write as `.vti` either way and open
-in ParaView.
+To enable raster and configuration-file cases, install GDAL development files and build with:
+
+```sh
+make clean
+make -j WITH_GDAL=1
+```
+
+The Environment Agency Test 4 benchmark additionally needs Python, NumPy and Rasterio:
+
+```sh
+make test-ea WITH_GDAL=1
+```
+
+The qmake project remains available for Qt Creator users:
+
+```sh
+qmake6 2D-DWE.pro CONFIG+=with_gdal && make -j
+```
 
 ## Verification status
 

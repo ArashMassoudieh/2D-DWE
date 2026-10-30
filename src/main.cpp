@@ -332,7 +332,6 @@ static Case make_c6(double dx_target, Agg agg, const std::string& storm = "6hr",
     // roughness back via a static and let main() apply it.
     return c;
 }
-#endif // DWE_WITH_GDAL
 
 // -----------------------------------------------------------------------------
 
@@ -1131,6 +1130,8 @@ static Case make_c7b(double dx_target, Agg agg, const std::string& dem_override,
     return c;
 }
 
+#endif // DWE_WITH_GDAL
+
 #include "case_config.hpp"
 
 int main(int argc, char** argv)
@@ -1170,12 +1171,16 @@ int main(int argc, char** argv)
         else which = argv[a];
     }
 
+#ifndef DWE_WITH_GDAL
+    (void)dxt;
+#endif
+
     Case c;
     if (which == "config") {
 #ifdef DWE_WITH_GDAL
         c = make_config(cfgfile);
 #else
-        std::printf("*** --config needs a GDAL build (CONFIG+=with_gdal)\n");
+        std::printf("*** --config needs GDAL: rebuild with make WITH_GDAL=1\n");
         return 2;
 #endif
     }
@@ -1186,7 +1191,7 @@ int main(int argc, char** argv)
                       : (aggs == "max") ? Agg::Max : Agg::Mean;
         c = make_nm141(dxt, agg, demov, storm);
 #else
-        std::printf("*** the nm141 case needs GDAL: rebuild with  qmake6 CONFIG+=with_gdal\n");
+        std::printf("*** the nm141 case needs GDAL: rebuild with make WITH_GDAL=1\n");
         return 2;
 #endif
     }
@@ -1196,7 +1201,7 @@ int main(int argc, char** argv)
                       : (aggs == "max") ? Agg::Max : Agg::Mean;
         c = make_nm032n(dxt, agg, demov, storm);
 #else
-        std::printf("*** the nm032n case needs GDAL: rebuild with  qmake6 CONFIG+=with_gdal\n");
+        std::printf("*** the nm032n case needs GDAL: rebuild with make WITH_GDAL=1\n");
         return 2;
 #endif
     }
@@ -1206,7 +1211,7 @@ int main(int argc, char** argv)
                       : (aggs == "max") ? Agg::Max : Agg::Mean;
         c = make_c4a(dxt, agg, demov, storm);
 #else
-        std::printf("*** the c4a case needs GDAL: rebuild with  qmake6 CONFIG+=with_gdal\n");
+        std::printf("*** the c4a case needs GDAL: rebuild with make WITH_GDAL=1\n");
         return 2;
 #endif
     }
@@ -1216,7 +1221,7 @@ int main(int argc, char** argv)
                       : (aggs == "max") ? Agg::Max : Agg::Mean;
         c = make_c4b(dxt, agg, demov, storm);
 #else
-        std::printf("*** the c4b case needs GDAL: rebuild with  qmake6 CONFIG+=with_gdal\n");
+        std::printf("*** the c4b case needs GDAL: rebuild with make WITH_GDAL=1\n");
         return 2;
 #endif
     }
@@ -1226,7 +1231,7 @@ int main(int argc, char** argv)
                       : (aggs == "max") ? Agg::Max : Agg::Mean;
         c = make_az140(dxt, agg, demov, storm);
 #else
-        std::printf("*** the az140 case needs GDAL: rebuild with  qmake6 CONFIG+=with_gdal\n");
+        std::printf("*** the az140 case needs GDAL: rebuild with make WITH_GDAL=1\n");
         return 2;
 #endif
     }
@@ -1236,7 +1241,7 @@ int main(int argc, char** argv)
                       : (aggs == "max") ? Agg::Max : Agg::Mean;
         c = make_c7b(dxt, agg, demov, storm);
 #else
-        std::printf("*** the c7b case needs GDAL: rebuild with  qmake6 CONFIG+=with_gdal\n");
+        std::printf("*** the c7b case needs GDAL: rebuild with make WITH_GDAL=1\n");
         return 2;
 #endif
     }
@@ -1250,7 +1255,7 @@ int main(int argc, char** argv)
                         "      always toward more spill. See DESIGN 4.3.\n\n", dxt);
         c = make_c6(dxt, agg, storm, demov);
 #else
-        std::printf("*** the c6 case needs GDAL: rebuild with  qmake6 CONFIG+=with_gdal\n");
+        std::printf("*** the c6 case needs GDAL: rebuild with make WITH_GDAL=1\n");
         return 2;
 #endif
     }
@@ -1336,6 +1341,7 @@ int main(int argc, char** argv)
     // Outlet without passing through Reach_58. The community bench is outside
     // the watershed altogether -- the controlling divide IS the watershed
     // boundary. See tools/hms_rainfall.py.
+#ifdef DWE_WITH_GDAL
     if (c.name == "c6" || c.name == "nm141" || c.name == "c7b" || c.name == "c4b"
         || c.name == "nm032n") {
         const bool is141 = (c.name == "nm141");
@@ -1382,6 +1388,7 @@ int main(int argc, char** argv)
                             "              they route through Reach_99 and are already in the east inflow\n");
         }
     }
+#endif
     MassBalance mb;
     mb.set_initial(F.volume());
 

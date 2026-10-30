@@ -18,7 +18,6 @@
 # =============================================================================
 
 # --- build artefacts (qmake) -------------------------------------------------
-Makefile
 Makefile.qmake
 build/
 bin/
@@ -100,6 +99,9 @@ venv/
 *.swp
 *.swo
 *~
+*.BAK
+*.BAK_*
+*.bak-*
 .DS_Store
 Thumbs.db
 

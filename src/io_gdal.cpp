@@ -296,7 +296,11 @@ bool write_gtiff(const std::string& path,
     b->SetNoDataValue(nodata);
     for (int j = 0; j < g.ny; ++j) {
         for (int i = 0; i < g.nx; ++i) row[i] = float(a[g.k(i, j)]);
-        b->RasterIO(GF_Write, 0, j, g.nx, 1, row.data(), g.nx, 1, GDT_Float32, 0, 0);
+        if (b->RasterIO(GF_Write, 0, j, g.nx, 1, row.data(), g.nx, 1,
+                        GDT_Float32, 0, 0) != CE_None) {
+            GDALClose(ds);
+            return false;
+        }
     }
     GDALClose(ds);
     return true;
